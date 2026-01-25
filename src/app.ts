@@ -15,7 +15,7 @@ import { ALLOWED_ORIGINS, FRONTEND_URL } from "./config/env";
 
 const app = express();
 
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
     if (req.url.startsWith('/api/api/')) {
         req.url = req.url.replace('/api/api/', '/api/');
     }
