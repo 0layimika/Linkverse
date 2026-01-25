@@ -13,6 +13,7 @@ import {
     InitiateTransferResponse,
     WebhookEvent,
 } from '../types/payment.types';
+import { PAYSTACK_SECRET_KEY } from '../config/env';
 
 export class PaystackProvider extends PaymentProvider {
     readonly providerName = 'paystack';
@@ -21,7 +22,7 @@ export class PaystackProvider extends PaymentProvider {
 
     constructor() {
         super();
-        this.secretKey = process.env.PAYSTACK_SECRET_KEY || '';
+        this.secretKey = PAYSTACK_SECRET_KEY;
     }
 
     private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

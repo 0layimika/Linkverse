@@ -13,6 +13,7 @@ import {
     InitiateTransferResponse,
     WebhookEvent,
 } from '../types/payment.types';
+import { KORA_SECRET_KEY, KORA_PUBLIC_KEY } from '../config/env';
 
 export class KoraProvider extends PaymentProvider {
     readonly providerName = 'kora';
@@ -22,8 +23,8 @@ export class KoraProvider extends PaymentProvider {
 
     constructor() {
         super();
-        this.secretKey = process.env.KORA_SECRET_KEY || '';
-        this.publicKey = process.env.KORA_PUBLIC_KEY || '';
+        this.secretKey = KORA_SECRET_KEY;
+        this.publicKey = KORA_PUBLIC_KEY;
     }
 
     private async request<T>(endpoint: string, options: RequestInit = {}, usePublicKey: boolean = false): Promise<T> {

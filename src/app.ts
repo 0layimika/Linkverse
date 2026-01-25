@@ -11,15 +11,42 @@ import giftRoute from "./routes/gift.route";
 import webhookRoute from "./routes/webhook.route";
 import profileRoute from "./routes/profile.route";
 import analyticsRoute from "./routes/analytics.route";
-import { FRONTEND_URL } from "./config/env";
+import { ALLOWED_ORIGINS, FRONTEND_URL } from "./config/env";
 
 const app = express();
 
-// CORS configuration - allow all origins in development
-// const isDevelopment = process.env.NODE_ENV !== 'production';
+// CORS configuration
+const allowedOriginsList = ALLOWED_ORIGINS
+    ? ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : [FRONTEND_URL];
+
+console.log('Allowed CORS origins:', allowedOriginsList);
 
 app.use(cors({
-    origin: FRONTEND_URL,
+    origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+        // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+        if (!origin) {
+            return callback(null, true);
+        }
+
+        // Allow if origin is in allowed list
+        if (allowedOriginsList.includes(origin)) {
+            return callback(null, true);
+        }
+
+        // Allow all localhost origins for development
+        if (origin.startsWith('http://localhost:')) {
+            return callback(null, true);
+        }
+
+        // Allow Vercel preview deployments
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
+        console.log('CORS blocked origin:', origin);
+        return callback(null, false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

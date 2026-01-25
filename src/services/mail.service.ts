@@ -1,9 +1,7 @@
 import { Resend } from "resend";
-import { FRONTEND_URL, RESEND_API_KEY } from "../config/env";
+import { FRONTEND_URL, RESEND_API_KEY, FROM_EMAIL } from "../config/env";
 
 const resend = new Resend(RESEND_API_KEY);
-
-const FROM_EMAIL = process.env.FROM_EMAIL || "LinkVerse <hello@linkverse.live>";
 
 export class MailService {
     private static async sendEmail(

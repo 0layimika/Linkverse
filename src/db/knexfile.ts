@@ -1,8 +1,9 @@
-import 'dotenv/config';
+import { DATABASE_URL } from '../config/env';
+
 export default {
     development: {
         client: 'pg',
-        connection: process.env.DATABASE_URL || 'postgresql://olayimika:password@localhost:5432/creatorlink',
+        connection: DATABASE_URL,
         migrations: {
             directory: '../migrations',
         },

@@ -2,8 +2,9 @@ import { PaymentProvider } from './PaymentProvider';
 import { PaystackProvider } from './PaystackProvider';
 import { KoraProvider } from './KoraProvider';
 import { PaymentProviderType } from '../types/payment.types';
+import { PAYMENT_PROVIDER } from '../config/env';
 
-let currentProvider: PaymentProviderType = (process.env.PAYMENT_PROVIDER as PaymentProviderType) || 'paystack';
+let currentProvider: PaymentProviderType = (PAYMENT_PROVIDER as PaymentProviderType) || 'paystack';
 
 const providers: Record<PaymentProviderType, () => PaymentProvider> = {
     paystack: () => new PaystackProvider(),
