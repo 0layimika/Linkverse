@@ -15,6 +15,14 @@ import { ALLOWED_ORIGINS, FRONTEND_URL } from "./config/env";
 
 const app = express();
 
+app.use((req, res, next) => {
+    if (req.url.startsWith('/api/api/')) {
+        req.url = req.url.replace('/api/api/', '/api/');
+    }
+    console.log(`🚀 Route Attempt: ${req.method} ${req.url}`);
+    next();
+});
+
 // CORS configuration
 const allowedOriginsList = ALLOWED_ORIGINS
     ? ALLOWED_ORIGINS.split(',').map(origin => origin.trim())

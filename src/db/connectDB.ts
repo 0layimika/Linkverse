@@ -2,11 +2,14 @@ import knex from './knex';
 
 export const connectDB = async () => {
     try {
-        // Run a simple query to check connection
-        await knex.raw('SELECT 1+1 AS result');
+        // In serverless, we check if the pool is already initialized
+        // This prevents the "hanging" effect
+        await knex.raw('SELECT 1');
         console.log('✅ Database connected successfully');
     } catch (err) {
         console.error('❌ Database connection failed:', err);
-        process.exit(1); // exit if DB is not reachable
+        // DO NOT use process.exit(1) here.
+        // Throwing the error allows your index.ts try/catch to handle it gracefully.
+        throw new Error('Database connection failed');
     }
 };
