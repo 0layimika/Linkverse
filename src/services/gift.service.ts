@@ -5,7 +5,7 @@ import { CreatorRepository } from "../repositories/CreatorRepository";
 import { WalletService } from "./wallet.service";
 import { getPaymentProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
-import { FRONTEND_URL, PAYMENT_CALLBACK_URL } from "../config/env";
+import { FRONTEND_URL } from "../config/env";
 import { MailService } from "./mail.service";
 
 export interface InitiateGiftData {
@@ -55,8 +55,7 @@ export class GiftService {
             } as any);
 
             // Build callback URL with reference
-            const callbackUrl = PAYMENT_CALLBACK_URL ||
-                `${FRONTEND_URL}/payment/callback?reference=${reference}`;
+            const callbackUrl = `${FRONTEND_URL}/payment/callback?reference=${reference}`;
 
             // Initialize payment
             const paymentResult = await provider.initializePayment({

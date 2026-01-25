@@ -1,8 +1,3 @@
-// @ts-ignore
-export const config = {
-    maxDuration: 30,
-};
-
 import 'dotenv/config';
 import app from '../src/app';
 import serverless from 'serverless-http';
