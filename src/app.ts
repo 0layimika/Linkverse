@@ -11,7 +11,7 @@ import giftRoute from "./routes/gift.route";
 import webhookRoute from "./routes/webhook.route";
 import profileRoute from "./routes/profile.route";
 import analyticsRoute from "./routes/analytics.route";
-// import { FRONTEND_URL } from "./config/env";
+import { FRONTEND_URL } from "./config/env";
 
 export const app = express();
 
@@ -19,7 +19,7 @@ export const app = express();
 // const isDevelopment = process.env.NODE_ENV !== 'production';
 
 app.use(cors({
-    origin: 'http://localhost:3000',
+    origin: FRONTEND_URL,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
