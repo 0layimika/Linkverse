@@ -65,6 +65,14 @@ app.use('/api/v1/gift', giftRoute);
 app.use('/api/v1/webhooks', webhookRoute);
 app.use('/api/v1/profile', profileRoute);
 app.use('/api/v1/analytics', analyticsRoute);
+app.get('/api/v1/debug-cors', (req: Request, res: Response) => {
+    res.json({
+        incomingOrigin: req.headers.origin,
+        allowedOriginsConfig: allowedOriginsList,
+        envFrontendUrl: FRONTEND_URL,
+        allHeaders: req.headers
+    });
+})
 
 app.use((_req: Request, res: Response) => {
     return ExpressResponse(res, NotFound("Oops, this route does not exist here"));
