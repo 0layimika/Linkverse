@@ -13,7 +13,7 @@ import profileRoute from "./routes/profile.route";
 import analyticsRoute from "./routes/analytics.route";
 import { FRONTEND_URL } from "./config/env";
 
-export const app = express();
+const app = express();
 
 // CORS configuration - allow all origins in development
 // const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -48,3 +48,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err);
     return ExpressResponse(res, InternalError(err.message || 'Internal server error'));
 });
+
+
+export default app;
