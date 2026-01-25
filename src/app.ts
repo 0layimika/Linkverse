@@ -73,6 +73,16 @@ app.use('/api/v1/gift', giftRoute);
 app.use('/api/v1/webhooks', webhookRoute);
 app.use('/api/v1/profile', profileRoute);
 app.use('/api/v1/analytics', analyticsRoute);
+
+// Health check endpoint
+app.get('/api/v1/health', (_req: Request, res: Response) => {
+    res.json({
+        success: true,
+        message: 'API is running',
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.get('/api/v1/debug-cors', (req: Request, res: Response) => {
     res.json({
         incomingOrigin: req.headers.origin,
@@ -80,8 +90,9 @@ app.get('/api/v1/debug-cors', (req: Request, res: Response) => {
         envFrontendUrl: FRONTEND_URL,
         allHeaders: req.headers
     });
-})
+});
 
+// 404 handler - must be last
 app.use((_req: Request, res: Response) => {
     return ExpressResponse(res, NotFound("Oops, this route does not exist here"));
 });
