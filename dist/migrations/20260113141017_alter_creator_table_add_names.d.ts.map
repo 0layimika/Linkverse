@@ -1,0 +1,1 @@
+{"version":3,"file":"20260113141017_alter_creator_table_add_names.d.ts","sourceRoot":"","sources":["../../src/migrations/20260113141017_alter_creator_table_add_names.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,MAAM,CAAC;AAGjC,wBAAsB,EAAE,CAAC,IAAI,EAAE,IAAI,GAAG,OAAO,CAAC,IAAI,CAAC,CAKlD;AAGD,wBAAsB,IAAI,CAAC,IAAI,EAAE,IAAI,GAAG,OAAO,CAAC,IAAI,CAAC,CAKpD"}
