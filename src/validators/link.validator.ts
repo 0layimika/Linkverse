@@ -5,6 +5,7 @@ export const createLinkSchema = z.object({
         title: z.string({ message: "Title is required" }).min(1, "Title cannot be empty").max(100, "Title is too long"),
         url: z.string({ message: "URL is required" }).url("Invalid URL format"),
         icon: z.string().optional(),
+        thumbnail_url: z.string().url("Invalid thumbnail URL").nullable().optional(),
     }),
 });
 
@@ -18,6 +19,7 @@ export const updateLinkSchema = z.object({
         title: z.string().min(1, "Title cannot be empty").max(100, "Title is too long").optional(),
         url: z.string().url("Invalid URL format").optional(),
         icon: z.string().optional(),
+        thumbnail_url: z.string().url("Invalid thumbnail URL").nullable().optional(),
         position: z.number().int().positive().optional(),
     }),
 });

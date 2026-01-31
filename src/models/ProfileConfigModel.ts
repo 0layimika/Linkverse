@@ -1,32 +1,28 @@
 import { Model, ModelObject } from 'objection';
 import { CreatorModel } from './CreatorModel';
 
-export class LinkModel extends Model {
-    static tableName = "links";
+export class ProfileConfigModel extends Model {
+    static tableName = "profile_config";
 
     id!: number;
     creator_id!: number;
-    title!: string;
-    url!: string;
-    icon!: string | null;
-    thumbnail_url!: string | null;
-    position!: number;
-    is_active!: boolean;
+    background_type!: string;
+    background_value!: string | null;
+    text_color!: string | null;
+    support_button_text!: string | null;
     created_at!: string;
     updated_at!: string;
 
     static get jsonSchema() {
         return {
             type: "object",
-            required: ["creator_id", "title", "url"],
+            required: ["creator_id", "background_type"],
             properties: {
                 id: { type: "integer" },
                 creator_id: { type: "integer" },
-                title: { type: "string", minLength: 1, maxLength: 100 },
-                url: { type: "string", minLength: 1 },
-                icon: { type: ["string", "null"] },
-                position: { type: "integer" },
-                is_active: { type: "boolean" },
+                background_type: { type: "string", enum: ["color", "image"] },
+                background_value: { type: ["string", "null"] },
+                text_color: { type: ["string", "null"] },
             },
         };
     }
@@ -37,7 +33,7 @@ export class LinkModel extends Model {
                 relation: Model.BelongsToOneRelation,
                 modelClass: CreatorModel,
                 join: {
-                    from: "links.creator_id",
+                    from: "profile_config.creator_id",
                     to: "creators.id",
                 },
             },
@@ -45,4 +41,4 @@ export class LinkModel extends Model {
     }
 }
 
-export type LinkModelType = ModelObject<LinkModel>;
+export type ProfileConfigModelType = ModelObject<ProfileConfigModel>;

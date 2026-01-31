@@ -6,12 +6,14 @@ export interface CreateLinkData {
     title: string;
     url: string;
     icon?: string;
+    thumbnail_url?: string | null;
 }
 
 export interface UpdateLinkData {
     title?: string;
     url?: string;
     icon?: string;
+    thumbnail_url?: string | null;
     position?: number;
 }
 
@@ -30,6 +32,7 @@ export class LinkService {
                 title: data.title,
                 url: data.url,
                 icon: data.icon || null,
+                thumbnail_url: data.thumbnail_url ?? null,
                 position: maxPosition + 1,
                 is_active: true,
             } as Partial<Link>);

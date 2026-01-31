@@ -7,6 +7,7 @@ export interface Link {
     title: string;
     url: string;
     icon: string | null;
+    thumbnail_url: string | null;
     position: number;
     is_active: boolean;
     created_at: string;
