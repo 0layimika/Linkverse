@@ -1,7 +1,7 @@
 import { Model, ModelObject } from 'objection';
 import { WalletModel } from './WalletModel';
 
-export type TransactionType = 'gift' | 'withdrawal';
+export type TransactionType = 'gift' | 'withdrawal' | 'store';
 export type TransactionStatus = 'pending' | 'completed' | 'failed';
 
 export class TransactionModel extends Model {
@@ -30,7 +30,7 @@ export class TransactionModel extends Model {
             properties: {
                 id: { type: "integer" },
                 wallet_id: { type: "integer" },
-                type: { type: "string", enum: ["gift", "withdrawal"] },
+                type: { type: "string", enum: ["gift", "withdrawal", "store"] },
                 amount: { type: "number" },
                 currency: { type: "string" },
                 status: { type: "string", enum: ["pending", "completed", "failed"] },

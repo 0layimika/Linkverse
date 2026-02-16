@@ -28,7 +28,7 @@ export const uploadFile = async (req: Request, res: Response) => {
         return ExpressResponse(res, Ok(result.data, "File uploaded successfully"));
     } catch (error: any) {
         console.error("Upload file controller error:", error);
-        return ExpressResponse(res,InternalError("Failed to upload file"));
+        return ExpressResponse(res, InternalError(error?.message || "Failed to upload file"));
     }
 };
 
@@ -58,4 +58,3 @@ export const deleteFile = async (req: Request, res: Response) => {
         return ExpressResponse(res, InternalError("Failed to delete file"));
     }
 };
-

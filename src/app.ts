@@ -11,6 +11,7 @@ import giftRoute from "./routes/gift.route";
 import webhookRoute from "./routes/webhook.route";
 import profileRoute from "./routes/profile.route";
 import analyticsRoute from "./routes/analytics.route";
+import storeRoute from "./routes/store.route";
 import { ALLOWED_ORIGINS, FRONTEND_URL } from "./config/env";
 
 const app = express();
@@ -75,6 +76,7 @@ app.use('/api/v1/gift', giftRoute);
 app.use('/api/v1/webhooks', webhookRoute);
 app.use('/api/v1/profile', profileRoute);
 app.use('/api/v1/analytics', analyticsRoute);
+app.use('/api/v1/store', storeRoute);
 
 // Health check endpoint
 app.get('/api/v1/health', (_req: Request, res: Response) => {

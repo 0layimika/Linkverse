@@ -14,13 +14,27 @@ const ALLOWED_DOCUMENT_TYPES = [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "text/plain",
     "text/csv",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-7z-compressed",
+    "application/x-rar-compressed",
 ];
 
-const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOCUMENT_TYPES];
+const ALLOWED_AUDIO_TYPES = [
+    "audio/mpeg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/flac",
+    "audio/aac",
+    "audio/mp4",
+    "audio/ogg",
+];
 
-// File size limits (in bytes)
-const MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024; // 50MB
+const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOCUMENT_TYPES, ...ALLOWED_AUDIO_TYPES];
+
+// File size limits (in bytes) - align with Cloudinary free tier limit
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Configure multer with memory storage
 const storage = multer.memoryStorage();
@@ -63,4 +77,3 @@ export const validateFileSize = (req: Request, res: Response, next: NextFunction
 
 // Single file upload middleware
 export const uploadSingle = upload.single("file");
-

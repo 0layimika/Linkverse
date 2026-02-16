@@ -240,4 +240,148 @@ export class MailService {
 
         return this.sendEmail(creatorEmail, subject, html);
     }
+
+    static async sendOrderConfirmationEmail(
+        buyerEmail: string,
+        buyerName: string | null,
+        productTitle: string,
+        amount: number,
+        reference: string
+    ): Promise<boolean> {
+        const subject = `Your order for ${productTitle} is confirmed`;
+        const orderLink = `${FRONTEND_URL}/order?reference=${reference}`;
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 20px 40px;">
+                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">Order Confirmed</h2>
+                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
+                                ${buyerName ? `Hi ${buyerName},` : "Hi there,"} your order for <strong>${productTitle}</strong> has been confirmed.
+                            </p>
+                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
+                                Amount: ₦${amount.toLocaleString()}<br/>
+                                Reference: ${reference}
+                            </p>
+                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td align="center" style="padding: 20px 0;">
+                                        <a href="${orderLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">View Order</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
+                                Keep this email for your records. You can access your order anytime using the link above.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
+                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
+                                &copy; 2026 CreatorLink. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+        return this.sendEmail(buyerEmail, subject, html);
+    }
+
+    static async sendCreatorOrderEmail(
+        creatorEmail: string,
+        creatorName: string,
+        productTitle: string,
+        amount: number,
+        buyerEmail: string,
+        buyerName: string | null,
+        reference: string,
+        details?: {
+            deliveryAddress?: Record<string, any> | null;
+            bookingSlot?: { start: string; end: string } | null;
+        }
+    ): Promise<boolean> {
+        const subject = `New order received: ${productTitle}`;
+        const orderLink = `${FRONTEND_URL}/order?reference=${reference}`;
+        const deliveryLine = details?.deliveryAddress
+            ? `<p style="margin: 8px 0; font-size: 14px; color: #52525b;">Delivery address: ${JSON.stringify(details.deliveryAddress)}</p>`
+            : '';
+        const bookingLine = details?.bookingSlot
+            ? `<p style="margin: 8px 0; font-size: 14px; color: #52525b;">Booking slot: ${details.bookingSlot.start} - ${details.bookingSlot.end}</p>`
+            : '';
+
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 20px 40px;">
+                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">New Order</h2>
+                            <p style="margin: 0 0 12px; font-size: 16px; line-height: 1.6; color: #52525b;">
+                                Hey ${creatorName}, you received a new order for <strong>${productTitle}</strong>.
+                            </p>
+                            <p style="margin: 0 0 12px; font-size: 14px; color: #52525b;">
+                                Buyer: ${buyerName || 'Customer'} (${buyerEmail})
+                            </p>
+                            <p style="margin: 0 0 12px; font-size: 14px; color: #52525b;">
+                                Amount: ₦${amount.toLocaleString()}
+                            </p>
+                            ${deliveryLine}
+                            ${bookingLine}
+                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td align="center" style="padding: 20px 0;">
+                                        <a href="${orderLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">View Order</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
+                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
+                                &copy; 2026 CreatorLink. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+        return this.sendEmail(creatorEmail, subject, html);
+    }
 }

@@ -3,6 +3,7 @@ import {cloudinary} from "../config/storage.config";
 import { Readable } from "stream";
 import { randomBytes } from "crypto";
 import path from "path";
+import { cloudinary as cloudinaryClient } from "../config/storage.config";
 
 interface UploadResult {
     url: string;
@@ -72,6 +73,8 @@ const uploadToCloudinary = async (
         return new Promise((resolve, reject) => {
             const uploadOptions: any = {
                 resource_type: "auto" as const,
+                type: "upload",
+                access_mode: "public",
                 public_id: folder ? `${folder}/${path.parse(fileName).name}` : path.parse(fileName).name,
             };
 
@@ -110,6 +113,17 @@ const uploadToCloudinary = async (
         console.error("Cloudinary upload error:", error);
         throw new Error(`Failed to upload to Cloudinary: ${error.message}`);
     }
+};
+
+export const getSignedDownloadUrl = (publicId: string, mimeType?: string): string => {
+    const isImage = mimeType?.startsWith("image/") ?? false;
+    const resourceType = isImage ? "image" : "raw";
+    return cloudinaryClient.url(publicId, {
+        resource_type: resourceType,
+        type: "upload",
+        secure: true,
+        sign_url: true,
+    });
 };
 
 export const uploadFileService = async (
@@ -170,4 +184,3 @@ export const deleteFileService = async (publicIdOrUrl: string): Promise<{ succes
         };
     }
 };
-
