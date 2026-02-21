@@ -117,7 +117,8 @@ const uploadToCloudinary = async (
 
 export const getSignedDownloadUrl = (publicId: string, mimeType?: string): string => {
     const isImage = mimeType?.startsWith("image/") ?? false;
-    const resourceType = isImage ? "image" : "raw";
+    const isVideo = mimeType?.startsWith("video/") ?? false;
+    const resourceType = isImage ? "image" : isVideo ? "video" : "raw";
     return cloudinaryClient.url(publicId, {
         resource_type: resourceType,
         type: "upload",

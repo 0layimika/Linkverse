@@ -15,6 +15,7 @@ export class StoreOrderModel extends Model {
     delivery_address!: Record<string, any> | null;
     status!: StoreOrderStatus;
     amount!: number;
+    amount_minor!: number | null;
     currency!: string;
     reference!: string;
     provider!: string;

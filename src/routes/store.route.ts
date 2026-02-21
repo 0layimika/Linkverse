@@ -13,8 +13,14 @@ import {
     resendOrderEmailSchema,
     downloadSchema,
     createAvailabilitySchema,
+    updateAvailabilitySchema,
+    deleteAvailabilitySchema,
     listSlotsSchema,
     holdSlotSchema,
+    ownerListSlotsSchema,
+    blockSlotSchema,
+    updateOrderStatusSchema,
+    updateBookingStatusSchema,
 } from "../validators/store.validator";
 
 const router = Router();
@@ -30,11 +36,17 @@ router.get("/products", auth, validate(paginationSchema), StoreController.listMy
 router.patch("/products/:id", auth, validate(updateProductSchema), StoreController.updateProduct);
 
 router.get("/orders", auth, validate(paginationSchema), StoreController.listOrders);
+router.patch("/orders/:id/status", auth, validate(updateOrderStatusSchema), StoreController.updateOrderStatus);
 router.post("/orders/:id/resend-email", auth, validate(resendOrderEmailSchema), StoreController.resendOrderEmails);
 router.get("/bookings", auth, validate(paginationSchema), StoreController.listBookings);
+router.patch("/bookings/:id/status", auth, validate(updateBookingStatusSchema), StoreController.updateBookingStatus);
 
 router.get("/availability", auth, StoreController.listAvailability);
 router.post("/availability", auth, validate(createAvailabilitySchema), StoreController.createAvailability);
+router.patch("/availability/:id", auth, validate(updateAvailabilitySchema), StoreController.updateAvailability);
+router.delete("/availability/:id", auth, validate(deleteAvailabilitySchema), StoreController.deleteAvailability);
+router.get("/services/:serviceId/slots", auth, validate(ownerListSlotsSchema), StoreController.listOwnerServiceSlots);
+router.post("/services/block", auth, validate(blockSlotSchema), StoreController.blockServiceSlot);
 
 // Public store routes
 router.get("/:username/services/:serviceId/slots", validate(listSlotsSchema), StoreController.listServiceSlots);

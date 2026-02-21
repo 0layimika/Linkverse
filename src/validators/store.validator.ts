@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const productTypeEnum = z.enum(["digital", "physical", "service"]);
+const timeString = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format (HH:MM)");
 
 export const createProductSchema = z.object({
     body: z.object({
@@ -81,8 +82,10 @@ export const initiatePurchaseSchema = z.object({
         buyer_name: z.string().optional(),
         buyer_phone: z.string().optional(),
         delivery_address: z.record(z.string(), z.any()).optional().nullable(),
-        slot_start: z.string().optional(),
-        slot_end: z.string().optional(),
+        hold_booking_id: z.number().int().positive().optional(),
+        hold_token: z.string().min(8).optional(),
+        slot_start: z.string().datetime({ offset: true }).optional(),
+        slot_end: z.string().datetime({ offset: true }).optional(),
     }),
 });
 
@@ -123,13 +126,38 @@ export type downloadSchema = z.infer<typeof downloadSchema>;
 export const createAvailabilitySchema = z.object({
     body: z.object({
         weekday: z.number().int().min(0).max(6),
-        start_time: z.string({ message: "Start time is required" }),
-        end_time: z.string({ message: "End time is required" }),
+        start_time: timeString,
+        end_time: timeString,
         timezone: z.string({ message: "Timezone is required" }),
+    }).refine((value) => value.start_time < value.end_time, {
+        message: "End time must be after start time",
+        path: ["end_time"],
     }),
 });
 
 export type createAvailabilitySchema = z.infer<typeof createAvailabilitySchema>;
+
+export const updateAvailabilitySchema = z.object({
+    params: z.object({
+        id: z.string({ message: "Availability ID is required" }),
+    }),
+    body: z.object({
+        weekday: z.number().int().min(0).max(6).optional(),
+        start_time: timeString.optional(),
+        end_time: timeString.optional(),
+        timezone: z.string().optional(),
+    }),
+});
+
+export type updateAvailabilitySchema = z.infer<typeof updateAvailabilitySchema>;
+
+export const deleteAvailabilitySchema = z.object({
+    params: z.object({
+        id: z.string({ message: "Availability ID is required" }),
+    }),
+});
+
+export type deleteAvailabilitySchema = z.infer<typeof deleteAvailabilitySchema>;
 
 export const listSlotsSchema = z.object({
     params: z.object({
@@ -137,8 +165,8 @@ export const listSlotsSchema = z.object({
         serviceId: z.string({ message: "Service ID is required" }),
     }),
     query: z.object({
-        from: z.string({ message: "From date is required" }),
-        to: z.string({ message: "To date is required" }),
+        from: z.string({ message: "From date is required" }).datetime({ offset: true }),
+        to: z.string({ message: "To date is required" }).datetime({ offset: true }),
     }),
 });
 
@@ -150,8 +178,8 @@ export const holdSlotSchema = z.object({
         serviceId: z.string({ message: "Service ID is required" }),
     }),
     body: z.object({
-        slot_start: z.string({ message: "Slot start is required" }),
-        slot_end: z.string({ message: "Slot end is required" }),
+        slot_start: z.string({ message: "Slot start is required" }).datetime({ offset: true }),
+        slot_end: z.string({ message: "Slot end is required" }).datetime({ offset: true }),
         buyer_email: z.string().email().optional(),
         buyer_name: z.string().optional(),
         buyer_phone: z.string().optional(),
@@ -160,3 +188,48 @@ export const holdSlotSchema = z.object({
 });
 
 export type holdSlotSchema = z.infer<typeof holdSlotSchema>;
+
+export const ownerListSlotsSchema = z.object({
+    params: z.object({
+        serviceId: z.string({ message: "Service ID is required" }),
+    }),
+    query: z.object({
+        from: z.string({ message: "From date is required" }).datetime({ offset: true }),
+        to: z.string({ message: "To date is required" }).datetime({ offset: true }),
+    }),
+});
+
+export type ownerListSlotsSchema = z.infer<typeof ownerListSlotsSchema>;
+
+export const blockSlotSchema = z.object({
+    body: z.object({
+        service_id: z.number().int().positive(),
+        slot_start: z.string().datetime({ offset: true }),
+        slot_end: z.string().datetime({ offset: true }),
+        notes: z.string().optional(),
+    }),
+});
+
+export type blockSlotSchema = z.infer<typeof blockSlotSchema>;
+
+export const updateOrderStatusSchema = z.object({
+    params: z.object({
+        id: z.string({ message: "Order ID is required" }),
+    }),
+    body: z.object({
+        status: z.enum(["cancelled", "refunded"]),
+    }),
+});
+
+export type updateOrderStatusSchema = z.infer<typeof updateOrderStatusSchema>;
+
+export const updateBookingStatusSchema = z.object({
+    params: z.object({
+        id: z.string({ message: "Booking ID is required" }),
+    }),
+    body: z.object({
+        status: z.enum(["confirmed", "cancelled", "expired"]),
+    }),
+});
+
+export type updateBookingStatusSchema = z.infer<typeof updateBookingStatusSchema>;

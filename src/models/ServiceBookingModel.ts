@@ -15,6 +15,7 @@ export class ServiceBookingModel extends Model {
     slot_end!: string;
     status!: ServiceBookingStatus;
     hold_expires_at!: string | null;
+    hold_token!: string | null;
     buyer_email!: string | null;
     buyer_name!: string | null;
     buyer_phone!: string | null;
