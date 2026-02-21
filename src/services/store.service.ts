@@ -395,6 +395,7 @@ export class StoreService {
                     hold_token: holdToken,
                     slot_start: selectedSlotStart,
                     slot_end: selectedSlotEnd,
+                    service_duration_minutes: product.type === "service" ? (product.duration_minutes || 30) : null,
                 },
             } as any);
 
@@ -567,9 +568,13 @@ export class StoreService {
                         }
                     } else if (metadata.slot_start) {
                         const slotStart = new Date(metadata.slot_start);
+                        const serviceDuration =
+                            Number(metadata.service_duration_minutes) > 0
+                                ? Number(metadata.service_duration_minutes)
+                                : (product.duration_minutes || 30);
                         const slotEnd = new Date(
                             metadata.slot_end ||
-                            slotStart.getTime() + (product.duration_minutes || 30) * 60000
+                            slotStart.getTime() + serviceDuration * 60000
                         );
                         const overlaps = await ServiceBookingModel.query(trx)
                             .where({ service_id: product.id })
@@ -1107,13 +1112,17 @@ export class StoreService {
             if (startDate.getTime() <= Date.now()) {
                 return BadRequest("Slot must be in the future");
             }
-            const expectedEnd = new Date(startDate.getTime() + (service.duration_minutes || 30) * 60000);
             const providedEnd = new Date(data.slot_end);
             if (Number.isNaN(providedEnd.getTime())) {
                 return BadRequest("Invalid slot end");
             }
-            if (startDate >= expectedEnd) return BadRequest("Invalid slot selection");
-            if (Math.abs(providedEnd.getTime() - expectedEnd.getTime()) > 60000) {
+            if (startDate >= providedEnd) return BadRequest("Invalid slot selection");
+
+            const configuredDuration = Number(service.duration_minutes) > 0 ? Number(service.duration_minutes) : null;
+            const expectedEnd = configuredDuration
+                ? new Date(startDate.getTime() + configuredDuration * 60000)
+                : null;
+            if (expectedEnd && Math.abs(providedEnd.getTime() - expectedEnd.getTime()) > 60000) {
                 return BadRequest("Slot end time does not match service duration");
             }
 
@@ -1130,7 +1139,7 @@ export class StoreService {
             );
 
             const isValidSlot = availableSlots.some(
-                (slot) => slot.start === startDate.toISOString() && slot.end === expectedEnd.toISOString()
+                (slot) => slot.start === startDate.toISOString() && slot.end === providedEnd.toISOString()
             );
 
             if (!isValidSlot) {
@@ -1141,7 +1150,7 @@ export class StoreService {
                 service_id: service.id,
                 creator_id: creator.id,
                 slot_start: data.slot_start,
-                slot_end: expectedEnd.toISOString(),
+                slot_end: providedEnd.toISOString(),
                 status: "hold",
                 hold_expires_at: holdExpiresAt,
                 hold_token: holdToken,
@@ -1178,8 +1187,11 @@ export class StoreService {
             }
             if (startDate >= endDate) return BadRequest("Invalid slot range");
 
-            const expectedEnd = new Date(startDate.getTime() + (service.duration_minutes || 30) * 60000);
-            if (Math.abs(endDate.getTime() - expectedEnd.getTime()) > 60000) {
+            const configuredDuration = Number(service.duration_minutes) > 0 ? Number(service.duration_minutes) : null;
+            const expectedEnd = configuredDuration
+                ? new Date(startDate.getTime() + configuredDuration * 60000)
+                : null;
+            if (expectedEnd && Math.abs(endDate.getTime() - expectedEnd.getTime()) > 60000) {
                 return BadRequest("Slot end time does not match service duration");
             }
 
