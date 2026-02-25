@@ -1,11 +1,16 @@
 import { Router } from "express";
-import { uploadFile, deleteFile } from "../controllers/media.controller";
+import { uploadFile, deleteFile, signUpload } from "../controllers/media.controller";
 import { auth } from "../middlewares/auth.middleware";
 import { uploadSingle, validateFileSize } from "../middlewares/upload.middleware";
 
 const router = Router();
 
 router.use(auth);
+
+router.post(
+    "/sign-upload",
+    signUpload
+);
 
 router.post(
     "/upload",
@@ -20,4 +25,3 @@ router.delete(
 );
 
 export default router;
-

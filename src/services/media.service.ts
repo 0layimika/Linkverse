@@ -1,5 +1,5 @@
 // import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import {cloudinary} from "../config/storage.config";
+import { cloudinary } from "../config/storage.config";
 import { Readable } from "stream";
 import { randomBytes } from "crypto";
 import path from "path";
@@ -137,9 +137,10 @@ export const uploadFileService = async (
         const fileName = generateUniqueFileName(originalName, folder);
 
         let result: UploadResult;
+        console.log("Uploading file")
 
         result = await uploadToCloudinary(fileBuffer, fileName, mimetype, folder);
-
+        console.log("File uploaded successfully", result);
         return {
             success: true,
             data: result,
@@ -170,7 +171,7 @@ export const deleteFileService = async (publicIdOrUrl: string): Promise<{ succes
         //
         //     await s3Client.send(command);
         // ]
-            // Cloudinary deletion
+        // Cloudinary deletion
         await cloudinary.uploader.destroy(publicIdOrUrl, {
             resource_type: "auto",
         });

@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { ExpressResponse, BadRequest, InternalError, Ok } from "../utils/response";
 import { uploadFileService, deleteFileService } from "../services/media.service";
+import { cloudinary } from "../config/storage.config";
+import { CLOUDINARY_API_KEY, CLOUDINARY_CLOUD_NAME } from "../config/env";
 
 export const uploadFile = async (req: Request, res: Response) => {
     try {
@@ -29,6 +31,54 @@ export const uploadFile = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error("Upload file controller error:", error);
         return ExpressResponse(res, InternalError(error?.message || "Failed to upload file"));
+    }
+};
+
+export const signUpload = async (req: Request, res: Response) => {
+    try {
+        const apiSecret = cloudinary.config().api_secret as string | undefined;
+        if (!CLOUDINARY_API_KEY || !CLOUDINARY_CLOUD_NAME || !apiSecret) {
+            return ExpressResponse(res, InternalError("Cloudinary is not configured"));
+        }
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        const folder = (req.body?.folder as string | undefined) || "creatorlink";
+        const requestedFormat = req.body?.format as string | undefined;
+        const allowedFormats = new Set(["jpg", "jpeg", "png", "webp", "avif"]);
+        const format = requestedFormat && allowedFormats.has(requestedFormat.toLowerCase())
+            ? requestedFormat.toLowerCase()
+            : undefined;
+
+        const paramsToSign: Record<string, string | number> = {
+            timestamp,
+            folder,
+        };
+        if (format) {
+            paramsToSign.format = format;
+        }
+
+        const signature = cloudinary.utils.api_sign_request(
+            paramsToSign,
+            apiSecret
+        );
+
+        return ExpressResponse(
+            res,
+            Ok(
+                {
+                    timestamp,
+                    signature,
+                    apiKey: CLOUDINARY_API_KEY,
+                    cloudName: CLOUDINARY_CLOUD_NAME,
+                    folder,
+                    format,
+                },
+                "Upload signature generated"
+            )
+        );
+    } catch (error: any) {
+        console.error("Sign upload controller error:", error);
+        return ExpressResponse(res, InternalError(error?.message || "Failed to sign upload"));
     }
 };
 
