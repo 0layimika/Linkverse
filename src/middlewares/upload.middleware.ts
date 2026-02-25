@@ -5,7 +5,7 @@ import { Response, NextFunction } from "express";
 import {BadRequest, ExpressResponse} from "../utils/response";
 
 // Allowed file types
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "image/svg+xml","image/heis"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/heic", "image/heif"];
 const ALLOWED_DOCUMENT_TYPES = [
     "application/pdf",
     "application/msword",
