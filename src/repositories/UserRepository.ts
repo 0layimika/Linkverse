@@ -7,6 +7,7 @@ export class UserRepository extends BaseRepository<UserModelType, UserModel> {
     }
 
     async findByEmail(email: string): Promise<UserModelType | undefined> {
-        return this.getOneWhere({ email });
+        const normalizedEmail = email.trim().toLowerCase();
+        return await UserModel.query().whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
     }
 }

@@ -9,23 +9,29 @@ import { MailService } from "./mail.service";
 const userRepo = new UserRepository();
 
 export class AuthService {
+    private static normalizeEmail(email: string): string {
+        return email.trim().toLowerCase();
+    }
+
     static async register(data: { email: string, password: string, confirmPassword: string }) {
         try {
             const { password, confirmPassword, ...rest } = data
-            const existingUser = await userRepo.findByEmail(rest.email);
+            const normalizedEmail = this.normalizeEmail(rest.email);
+            const existingUser = await userRepo.findByEmail(normalizedEmail);
             if (existingUser) {
                 return BadRequest("User already exists");
             }
             const password_hash = await bcrypt.hash(password, 10);
             const user = await userRepo.create({
                 ...rest,
+                email: normalizedEmail,
                 password_hash
             })
             const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: "10m" });
             const verificationLink = `${FRONTEND_URL}/verify?token=${token}`
 
             // Send verification email
-            MailService.sendVerificationEmail(rest.email, verificationLink);
+            MailService.sendVerificationEmail(normalizedEmail, verificationLink);
 
             return Ok({ user }, "User Created Successfully. Please check your email to verify your account.")
         } catch (err: any) {
@@ -56,17 +62,18 @@ export class AuthService {
 
     static async forgotPassword(email: string) {
         try {
-            const user = await userRepo.findByEmail(email)
+            const normalizedEmail = this.normalizeEmail(email);
+            const user = await userRepo.findByEmail(normalizedEmail)
             if (!user) {
-                return NotFound(`User with email ${email} not found`);
+                return NotFound(`User with email ${normalizedEmail} not found`);
             }
             const resetToken = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "10m" });
             const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}`
 
             // Send forgot password email
-            MailService.sendForgotPasswordEmail(email, resetLink);
+            MailService.sendForgotPasswordEmail(normalizedEmail, resetLink);
 
-            return Ok(null, `Password reset link has been sent to ${email}`)
+            return Ok(null, `Password reset link has been sent to ${normalizedEmail}`)
         } catch (err: any) {
             return InternalError(err.message)
         }
@@ -91,7 +98,8 @@ export class AuthService {
     }
 
     static async login({ email, password }: { email: string, password: string }) {
-        const user = await userRepo.findByEmail(email)
+        const normalizedEmail = this.normalizeEmail(email);
+        const user = await userRepo.findByEmail(normalizedEmail)
         if (!user) {
             return NotFound("Email does not exist on system")
         }
@@ -112,9 +120,10 @@ export class AuthService {
 
     static async resendVerificationLink(email: string) {
         try {
-            const user = await userRepo.findByEmail(email)
+            const normalizedEmail = this.normalizeEmail(email);
+            const user = await userRepo.findByEmail(normalizedEmail)
             if (!user) {
-                return NotFound(`User with email ${email} not found`);
+                return NotFound(`User with email ${normalizedEmail} not found`);
             }
             if (user.verified) {
                 return BadRequest("Account is already verified");
@@ -123,9 +132,9 @@ export class AuthService {
             const verificationLink = `${FRONTEND_URL}/verify?token=${token}`
 
             // Send verification email
-            MailService.sendVerificationEmail(email, verificationLink);
+            MailService.sendVerificationEmail(normalizedEmail, verificationLink);
 
-            return Ok(null, `Verification link has been sent to ${email}`)
+            return Ok(null, `Verification link has been sent to ${normalizedEmail}`)
         } catch (err: any) {
             return InternalError(err.message)
         }
@@ -133,17 +142,18 @@ export class AuthService {
 
     static async resendForgotPasswordLink(email: string) {
         try {
-            const user = await userRepo.findByEmail(email)
+            const normalizedEmail = this.normalizeEmail(email);
+            const user = await userRepo.findByEmail(normalizedEmail)
             if (!user) {
-                return NotFound(`User with email ${email} not found`);
+                return NotFound(`User with email ${normalizedEmail} not found`);
             }
             const resetToken = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "10m" });
             const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}`
 
             // Send forgot password email
-            MailService.sendForgotPasswordEmail(email, resetLink);
+            MailService.sendForgotPasswordEmail(normalizedEmail, resetLink);
 
-            return Ok(null, `Password reset link has been sent to ${email}`)
+            return Ok(null, `Password reset link has been sent to ${normalizedEmail}`)
         } catch (err: any) {
             return InternalError(err.message)
         }
