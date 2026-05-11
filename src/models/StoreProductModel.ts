@@ -23,6 +23,8 @@ export class StoreProductModel extends Model {
     buffer_minutes!: number | null;
     timezone!: string | null;
     requires_address!: boolean;
+    track_inventory!: boolean;
+    stock_quantity!: number | null;
     created_at!: string;
     updated_at!: string;
 

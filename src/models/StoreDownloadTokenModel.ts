@@ -6,6 +6,7 @@ export class StoreDownloadTokenModel extends Model {
 
     id!: number;
     order_id!: number;
+    product_id!: number | null;
     token!: string;
     max_downloads!: number;
     download_count!: number;

@@ -13,6 +13,11 @@ export interface StoreOrderRecord {
     status: StoreOrderStatus;
     amount: number;
     amount_minor: number | null;
+    subtotal: number;
+    total: number;
+    item_count: number;
+    platform_fee: number;
+    platform_fee_minor: number;
     currency: string;
     reference: string;
     provider: string;
@@ -34,7 +39,7 @@ class StoreOrderRepositoryClass extends BaseRepository<StoreOrderRecord, StoreOr
     async getByReferenceWithProduct(reference: string): Promise<any> {
         return await StoreOrderModel.query()
             .findOne({ reference })
-            .withGraphFetched('product');
+            .withGraphFetched('[product, items]');
     }
 
     async updateStatus(id: number, status: StoreOrderStatus, providerReference?: string): Promise<StoreOrderRecord> {
@@ -56,7 +61,7 @@ class StoreOrderRepositoryClass extends BaseRepository<StoreOrderRecord, StoreOr
     async getByCreatorIdWithProduct(creatorId: number, limit = 20, offset = 0): Promise<any[]> {
         return await StoreOrderModel.query()
             .where({ creator_id: creatorId })
-            .withGraphFetched('product')
+            .withGraphFetched('[product, items]')
             .orderBy("created_at", "desc")
             .limit(limit)
             .offset(offset);

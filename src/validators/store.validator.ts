@@ -21,6 +21,8 @@ export const createProductSchema = z.object({
         buffer_minutes: z.number().int().min(0).optional().nullable(),
         timezone: z.string().optional().nullable(),
         requires_address: z.boolean().optional(),
+        track_inventory: z.boolean().optional(),
+        stock_quantity: z.number().int().min(0).optional().nullable(),
     }),
 });
 
@@ -46,6 +48,8 @@ export const updateProductSchema = z.object({
         buffer_minutes: z.number().int().min(0).optional().nullable(),
         timezone: z.string().optional().nullable(),
         requires_address: z.boolean().optional(),
+        track_inventory: z.boolean().optional(),
+        stock_quantity: z.number().int().min(0).optional().nullable(),
     }),
 });
 
@@ -79,8 +83,8 @@ export const initiatePurchaseSchema = z.object({
     }),
     body: z.object({
         buyer_email: z.string().email("Invalid email"),
-        buyer_name: z.string().optional(),
-        buyer_phone: z.string().optional(),
+        buyer_name: z.string().min(2, "Name is required"),
+        buyer_phone: z.string().min(7, "Phone is required"),
         delivery_address: z.record(z.string(), z.any()).optional().nullable(),
         hold_booking_id: z.number().int().positive().optional(),
         hold_token: z.string().min(8).optional(),
@@ -90,6 +94,26 @@ export const initiatePurchaseSchema = z.object({
 });
 
 export type initiatePurchaseSchema = z.infer<typeof initiatePurchaseSchema>;
+
+export const cartCheckoutSchema = z.object({
+    params: z.object({
+        username: z.string({ message: "Username is required" }),
+    }),
+    body: z.object({
+        buyer_email: z.string().email("Invalid email"),
+        buyer_name: z.string().min(2, "Name is required"),
+        buyer_phone: z.string().min(7, "Phone is required"),
+        delivery_address: z.record(z.string(), z.any()).optional().nullable(),
+        items: z.array(
+            z.object({
+                product_id: z.number().int().positive(),
+                quantity: z.number().int().min(1).max(100),
+            })
+        ).min(1, "Cart cannot be empty"),
+    }),
+});
+
+export type cartCheckoutSchema = z.infer<typeof cartCheckoutSchema>;
 
 export const verifyPurchaseSchema = z.object({
     query: z.object({

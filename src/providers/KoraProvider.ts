@@ -243,7 +243,7 @@ export class KoraProvider extends PaymentProvider {
             data: {
                 reference: body.data.reference,
                 status: body.data.status,
-                amount: (body.data.amount || 0) * 100, // Convert to kobo
+                amount: body.data.amount || 0, // Kora webhook amount is in major units
                 ...body.data,
             },
         };

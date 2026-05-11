@@ -8,6 +8,7 @@ import {
     paginationSchema,
     getStorefrontSchema,
     initiatePurchaseSchema,
+    cartCheckoutSchema,
     verifyPurchaseSchema,
     getOrderSchema,
     resendOrderEmailSchema,
@@ -52,6 +53,7 @@ router.post("/services/block", auth, validate(blockSlotSchema), StoreController.
 router.get("/:username/services/:serviceId/slots", validate(listSlotsSchema), StoreController.listServiceSlots);
 router.post("/:username/services/:serviceId/hold", validate(holdSlotSchema), StoreController.holdServiceSlot);
 router.post("/:username/buy/:productId", validate(initiatePurchaseSchema), StoreController.initiatePurchase);
+router.post("/:username/cart/checkout", validate(cartCheckoutSchema), StoreController.checkoutCart);
 router.get("/:username", validate(getStorefrontSchema), StoreController.getStorefront);
 
 export default router;

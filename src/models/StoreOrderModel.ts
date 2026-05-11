@@ -2,6 +2,7 @@ import { Model, ModelObject } from "objection";
 import { StoreOrderStatus } from "../types/store.types";
 import { StoreProductModel } from "./StoreProductModel";
 import { CreatorModel } from "./CreatorModel";
+import { StoreOrderItemModel } from "./StoreOrderItemModel";
 
 export class StoreOrderModel extends Model {
     static tableName = "store_orders";
@@ -16,6 +17,11 @@ export class StoreOrderModel extends Model {
     status!: StoreOrderStatus;
     amount!: number;
     amount_minor!: number | null;
+    subtotal!: number;
+    total!: number;
+    item_count!: number;
+    platform_fee!: number;
+    platform_fee_minor!: number;
     currency!: string;
     reference!: string;
     provider!: string;
@@ -40,6 +46,14 @@ export class StoreOrderModel extends Model {
                 join: {
                     from: "store_orders.creator_id",
                     to: "creators.id",
+                },
+            },
+            items: {
+                relation: Model.HasManyRelation,
+                modelClass: StoreOrderItemModel,
+                join: {
+                    from: "store_orders.id",
+                    to: "store_order_items.order_id",
                 },
             },
         };

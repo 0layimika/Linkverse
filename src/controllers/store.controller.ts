@@ -7,6 +7,7 @@ import {
     paginationSchema,
     getStorefrontSchema,
     initiatePurchaseSchema,
+    cartCheckoutSchema,
     verifyPurchaseSchema,
     getOrderSchema,
     resendOrderEmailSchema,
@@ -148,6 +149,16 @@ export class StoreController {
         try {
             const { query } = req as verifyPurchaseSchema;
             const result = await StoreService.verifyPurchase(query.reference);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
+
+    static async checkoutCart(req: any, res: Response): Promise<any> {
+        try {
+            const { params, body } = req as cartCheckoutSchema;
+            const result = await StoreService.checkoutCart(params.username, body);
             return ExpressResponse(res, result);
         } catch (err: any) {
             return ExpressResponse(res, InternalError(err.message));

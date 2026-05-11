@@ -72,7 +72,8 @@ export class WalletController {
     static async handleKoraWebhook(req: Request, res: Response) {
         try {
             const signature = req.headers['x-korapay-signature'] as string;
-            const payload = JSON.stringify(req.body);
+            // Kora signs the `data` object payload.
+            const payload = JSON.stringify(req.body?.data ?? req.body);
             const result = await GiftService.handleWebhook('kora', payload, signature, req.body);
             return ExpressResponse(res, result);
         } catch (err: any) {

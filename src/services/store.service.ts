@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { CreatorRepository } from "../repositories/CreatorRepository";
 import { StoreProductRepository } from "../repositories/StoreProductRepository";
 import { StoreOrderRepository } from "../repositories/StoreOrderRepository";
+import { StoreOrderItemRepository } from "../repositories/StoreOrderItemRepository";
 import { StoreDownloadTokenRepository } from "../repositories/StoreDownloadTokenRepository";
 import { ServiceAvailabilityRepository } from "../repositories/ServiceAvailabilityRepository";
 import { ServiceBookingRepository } from "../repositories/ServiceBookingRepository";
@@ -35,19 +36,29 @@ interface CreateProductData {
     buffer_minutes?: number | null;
     timezone?: string | null;
     requires_address?: boolean;
+    track_inventory?: boolean;
+    stock_quantity?: number | null;
 }
 
 interface UpdateProductData extends Partial<CreateProductData> {}
 
 interface InitiatePurchaseData {
     buyer_email: string;
-    buyer_name?: string;
-    buyer_phone?: string;
+    buyer_name: string;
+    buyer_phone: string;
     delivery_address?: Record<string, any> | null;
     hold_booking_id?: number;
     hold_token?: string;
     slot_start?: string;
     slot_end?: string;
+}
+
+interface CartCheckoutData {
+    buyer_email: string;
+    buyer_name: string;
+    buyer_phone: string;
+    delivery_address?: Record<string, any> | null;
+    items: Array<{ product_id: number; quantity: number }>;
 }
 
 interface CreateAvailabilityWindowData {
@@ -81,6 +92,7 @@ interface BlockServiceSlotData {
 }
 
 export class StoreService {
+    private static PLATFORM_FEE_RATE = 0.025;
     static generateReference(): string {
         return `store_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
     }
@@ -216,6 +228,14 @@ export class StoreService {
             if (data.type === "digital" && data.download_limit !== undefined && data.download_limit < 1) {
                 return BadRequest("Download limit must be at least 1");
             }
+            if (data.type === "physical") {
+                if (data.track_inventory !== false && (data.stock_quantity === undefined || data.stock_quantity === null)) {
+                    return BadRequest("Stock quantity is required for physical products");
+                }
+                if (data.stock_quantity !== undefined && data.stock_quantity !== null && data.stock_quantity < 0) {
+                    return BadRequest("Stock quantity cannot be negative");
+                }
+            }
 
             const product = await StoreProductRepository.create({
                 creator_id: creator.id,
@@ -235,6 +255,8 @@ export class StoreService {
                 buffer_minutes: data.buffer_minutes ?? null,
                 timezone: data.timezone ?? null,
                 requires_address: data.requires_address ?? false,
+                track_inventory: data.type === "physical" ? (data.track_inventory ?? true) : false,
+                stock_quantity: data.type === "physical" ? (data.stock_quantity ?? 0) : null,
             } as any);
 
             return Ok(product, "Product created successfully");
@@ -251,6 +273,16 @@ export class StoreService {
             const product = await StoreProductRepository.findById(productId);
             if (!product) return NotFound("Product not found");
             if (product.creator_id !== creator.id) return BadRequest("You do not own this product");
+            const nextType = data.type || product.type;
+            if (nextType === "physical" && (data.track_inventory ?? product.track_inventory ?? true)) {
+                const nextStock = data.stock_quantity ?? product.stock_quantity;
+                if (nextStock === null || nextStock === undefined) {
+                    return BadRequest("Stock quantity is required for physical products");
+                }
+                if (nextStock < 0) {
+                    return BadRequest("Stock quantity cannot be negative");
+                }
+            }
 
             const updated = await StoreProductRepository.update(productId, data as any);
             return Ok(updated, "Product updated successfully");
@@ -301,6 +333,9 @@ export class StoreService {
             const product = await StoreProductRepository.findById(productId);
             if (!product || product.creator_id !== creator.id) return NotFound("Product not found");
             if (!product.is_active) return BadRequest("Product is not available");
+            if (product.type === "physical" && product.track_inventory && (product.stock_quantity || 0) <= 0) {
+                return BadRequest("Product is out of stock");
+            }
 
             if (product.type === "physical" && !this.hasValidDeliveryAddress(data.delivery_address)) {
                 return BadRequest("Delivery address is required for physical products");
@@ -310,7 +345,11 @@ export class StoreService {
 
             const reference = this.generateReference();
             const provider = getPaymentProvider();
-            const amountMinor = this.toAmountMinor(Number(product.price));
+            const subtotalMajor = Number(product.price);
+            const platformFeeMajor = Number((subtotalMajor * this.PLATFORM_FEE_RATE).toFixed(2));
+            const totalMajor = Number((subtotalMajor + platformFeeMajor).toFixed(2));
+            const amountMinor = this.toAmountMinor(totalMajor);
+            const platformFeeMinor = this.toAmountMinor(platformFeeMajor);
 
             let selectedSlotStart: string | null = null;
             let selectedSlotEnd: string | null = null;
@@ -384,13 +423,20 @@ export class StoreService {
                 buyer_phone: data.buyer_phone ?? null,
                 delivery_address: data.delivery_address ?? null,
                 status: "pending",
-                amount: product.price,
+                amount: totalMajor,
                 amount_minor: amountMinor,
+                subtotal: subtotalMajor,
+                total: totalMajor,
+                item_count: 1,
+                platform_fee: platformFeeMajor,
+                platform_fee_minor: platformFeeMinor,
                 currency: product.currency,
                 reference,
                 provider: provider.providerName,
                 metadata: {
                     product_type: product.type,
+                    item_count: 1,
+                    platform_fee_rate: this.PLATFORM_FEE_RATE,
                     hold_booking_id: holdBookingId,
                     hold_token: holdToken,
                     slot_start: selectedSlotStart,
@@ -437,8 +483,9 @@ export class StoreService {
 
             const order = await StoreOrderRepository.getByReference(reference);
             if (!order) return NotFound("Order not found");
-
-            const product = await StoreProductRepository.findById(order.product_id);
+            const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
+            const primaryProduct = await StoreProductRepository.findById(order.product_id);
+            const product = primaryProduct || (orderItems.length > 0 ? ({ title: "Cart order", type: "physical", duration_minutes: null, download_limit: 3 } as any) : null);
             if (!product) return NotFound("Product not found");
 
             let verifyStatus: "success" | "failed" | "pending" = "success";
@@ -484,10 +531,9 @@ export class StoreService {
                 }
 
                 const wallet = await WalletService.getOrCreateWallet(lockedOrder.creator_id);
-                const feeMinor = Math.round(expectedAmountMinor * 0.05);
-                const netMinor = expectedAmountMinor - feeMinor;
-                const netMajor = this.toAmountMajor(netMinor);
-                const feeMajor = this.toAmountMajor(feeMinor);
+                const feeMinor = lockedOrder.platform_fee_minor || 0;
+                const subtotalMajor = Number(lockedOrder.subtotal || lockedOrder.amount);
+                const subtotalMinor = this.toAmountMinor(subtotalMajor);
                 const grossMajor = this.toAmountMajor(expectedAmountMinor);
                 orderAmountMajor = grossMajor;
 
@@ -496,7 +542,7 @@ export class StoreService {
                     transaction = await TransactionRepository.create({
                         wallet_id: wallet.id,
                         type: "store",
-                        amount: netMajor,
+                        amount: subtotalMajor,
                         currency: lockedOrder.currency,
                         status: "pending",
                         reference: lockedOrder.reference,
@@ -507,18 +553,28 @@ export class StoreService {
                         sender_email: lockedOrder.buyer_email || null,
                         metadata: {
                             order_id: lockedOrder.id,
-                            product_id: product.id,
-                            product_type: product.type,
+                            product_id: lockedOrder.product_id,
+                            product_type: orderItems.length > 0 ? "cart" : product.type,
                             gross_amount: grossMajor,
-                            fee_amount: feeMajor,
+                            subtotal_amount: subtotalMajor,
+                            fee_amount: lockedOrder.platform_fee || 0,
                             gross_amount_minor: expectedAmountMinor,
+                            subtotal_amount_minor: subtotalMinor,
                             fee_amount_minor: feeMinor,
+                            items: orderItems.map((item) => ({
+                                product_id: item.product_id,
+                                title: item.title_snapshot,
+                                type: item.type_snapshot,
+                                quantity: item.quantity,
+                                unit_price: item.unit_price,
+                                line_total: item.line_total,
+                            })),
                         },
                     } as any, {}, trx);
                 }
 
                 if (transaction.status !== "completed") {
-                    await WalletRepository.creditWallet(wallet.id, netMajor, trx);
+                    await WalletRepository.creditWallet(wallet.id, subtotalMajor, trx);
                     await TransactionRepository.updateStatus(
                         transaction.id,
                         "completed",
@@ -527,14 +583,70 @@ export class StoreService {
                     );
                 }
 
-                if (product.type === "digital") {
-                    let tokenRecord = await StoreDownloadTokenRepository.getOneWhere({ order_id: lockedOrder.id });
-                    if (!tokenRecord) {
-                        tokenRecord = await StoreDownloadTokenRepository.create({
-                            order_id: lockedOrder.id,
-                            token: this.generateDownloadToken(),
-                            max_downloads: product.download_limit || 3,
-                        } as any, {}, trx);
+                if (orderItems.length > 0) {
+                    const physicalItemIds = orderItems
+                        .filter((item) => item.type_snapshot === "physical")
+                        .map((item) => item.product_id);
+                    if (physicalItemIds.length > 0) {
+                        const lockedProducts = await StoreProductRepository.getAllWhere(
+                            {},
+                            {},
+                            (qb: any) => {
+                                qb.whereIn("id", physicalItemIds).forUpdate();
+                            }
+                        ) as any[];
+                        const productById = new Map(lockedProducts.map((p) => [p.id, p]));
+                        for (const item of orderItems) {
+                            if (item.type_snapshot !== "physical") continue;
+                            const p = productById.get(item.product_id);
+                            if (!p) throw new Error(`Product not found: ${item.product_id}`);
+                            if (p.track_inventory && (p.stock_quantity || 0) < item.quantity) {
+                                throw new Error(`Insufficient stock for ${item.title_snapshot}`);
+                            }
+                        }
+                        for (const item of orderItems) {
+                            if (item.type_snapshot !== "physical") continue;
+                            const p = productById.get(item.product_id);
+                            if (!p || !p.track_inventory) continue;
+                            await StoreProductRepository.update(
+                                p.id,
+                                { stock_quantity: Number(p.stock_quantity || 0) - Number(item.quantity) } as any,
+                                trx
+                            );
+                        }
+                    }
+                }
+                if (orderItems.length === 0 && product.type === "physical" && product.track_inventory) {
+                    const liveProduct = await StoreProductRepository.findById(product.id, {}, {}, trx);
+                    if (!liveProduct) throw new Error("Product not found");
+                    if ((liveProduct.stock_quantity || 0) < 1) {
+                        throw new Error(`Insufficient stock for ${product.title}`);
+                    }
+                    await StoreProductRepository.update(
+                        liveProduct.id,
+                        { stock_quantity: Number(liveProduct.stock_quantity || 0) - 1 } as any,
+                        trx
+                    );
+                }
+
+                const digitalItems = orderItems.filter((item) => item.type_snapshot === "digital");
+                if ((product.type === "digital" && orderItems.length === 0) || digitalItems.length > 0) {
+                    const targets = digitalItems.length > 0
+                        ? digitalItems.map((item) => ({ order_id: lockedOrder.id, product_id: item.product_id, max_downloads: 3 }))
+                        : [{ order_id: lockedOrder.id, product_id: null, max_downloads: product.download_limit || 3 }];
+                    for (const target of targets) {
+                        let tokenRecord = await StoreDownloadTokenRepository.getOneWhere({
+                            order_id: target.order_id,
+                            product_id: target.product_id,
+                        } as any);
+                        if (!tokenRecord) {
+                            tokenRecord = await StoreDownloadTokenRepository.create({
+                                order_id: target.order_id,
+                                product_id: target.product_id,
+                                token: this.generateDownloadToken(),
+                                max_downloads: target.max_downloads,
+                            } as any, {}, trx);
+                        }
                     }
                 }
 
@@ -631,16 +743,173 @@ export class StoreService {
                 );
             }
 
-            if (product.type === "digital") {
+            if (product.type === "digital" || orderItems.some((item) => item.type_snapshot === "digital")) {
                 const tokenRecord = await StoreDownloadTokenRepository.getOneWhere({ order_id: order.id });
+                const tokens = await StoreDownloadTokenRepository.getAllWhere({ order_id: order.id });
                 return Ok({
                     status: "paid",
                     download_token: tokenRecord?.token,
+                    download_tokens: tokens,
                     max_downloads: tokenRecord?.max_downloads,
                 }, firstProcessed ? "Payment verified" : "Order already processed");
             }
 
             return Ok({ status: "paid" }, firstProcessed ? "Payment verified" : "Order already processed");
+        } catch (err: any) {
+            return InternalError(err.message);
+        }
+    }
+
+    static async checkoutCart(username: string, data: CartCheckoutData) {
+        try {
+            const creator = await CreatorRepository.getOneWhere({ username });
+            if (!creator) return NotFound("Creator not found");
+            if (!Array.isArray(data.items) || data.items.length === 0) return BadRequest("Cart cannot be empty");
+            if (!data.buyer_name?.trim()) return BadRequest("Buyer name is required");
+            if (!data.buyer_phone?.trim()) return BadRequest("Buyer phone is required");
+
+            const merged = new Map<number, number>();
+            for (const item of data.items) {
+                const qty = Number(item.quantity || 0);
+                if (!item.product_id || qty < 1) return BadRequest("Invalid cart item");
+                merged.set(item.product_id, (merged.get(item.product_id) || 0) + qty);
+            }
+
+            const normalizedItems = Array.from(merged.entries()).map(([product_id, quantity]) => ({ product_id, quantity }));
+            const products = await Promise.all(normalizedItems.map((item) => StoreProductRepository.findById(item.product_id)));
+
+            let currency: string | null = null;
+            let requiresAddress = false;
+            let hasDigital = false;
+            let subtotal = 0;
+            const lineItems: Array<any> = [];
+
+            for (let i = 0; i < normalizedItems.length; i += 1) {
+                const item = normalizedItems[i];
+                const product = products[i];
+                if (!product || product.creator_id !== creator.id) return NotFound("One or more products not found");
+                if (!product.is_active) return BadRequest(`Product is not available: ${product.title}`);
+                if (product.type === "service") return BadRequest("Service products must be booked separately");
+                if (product.type === "physical" && product.track_inventory && (product.stock_quantity || 0) <= 0) {
+                    return BadRequest(`Product is out of stock: ${product.title}`);
+                }
+
+                if (!currency) currency = product.currency;
+                if (currency !== product.currency) return BadRequest("All items in cart must use the same currency");
+
+                if (product.type === "physical") requiresAddress = true;
+                if (product.type === "digital") hasDigital = true;
+
+                const lineTotal = Number(product.price) * item.quantity;
+                subtotal += lineTotal;
+                lineItems.push({
+                    product,
+                    quantity: item.quantity,
+                    lineTotal,
+                });
+            }
+
+            if (requiresAddress && !this.hasValidDeliveryAddress(data.delivery_address)) {
+                return BadRequest("Delivery address is required for physical products");
+            }
+
+            const reference = this.generateReference();
+            const provider = getPaymentProvider();
+            const platformFee = Number((subtotal * this.PLATFORM_FEE_RATE).toFixed(2));
+            const total = Number((subtotal + platformFee).toFixed(2));
+            const amountMinor = this.toAmountMinor(total);
+            const platformFeeMinor = this.toAmountMinor(platformFee);
+            const callbackUrl = `${FRONTEND_URL}/payment/store?reference=${reference}&type=cart`;
+
+            const order = await knex.transaction(async (trx) => {
+                const physicalItemIds = lineItems
+                    .filter((item) => item.product.type === "physical" && item.product.track_inventory)
+                    .map((item) => item.product.id);
+                if (physicalItemIds.length > 0) {
+                    const lockedProducts = await StoreProductRepository.getAllWhere(
+                        {},
+                        {},
+                        (qb: any) => {
+                            qb.whereIn("id", physicalItemIds).forUpdate();
+                        }
+                    ) as any[];
+                    const byId = new Map(lockedProducts.map((p) => [p.id, p]));
+                    for (const item of lineItems) {
+                        if (item.product.type !== "physical" || !item.product.track_inventory) continue;
+                        const live = byId.get(item.product.id);
+                        if (!live || Number(live.stock_quantity || 0) < Number(item.quantity)) {
+                            throw new Error(`Insufficient stock for ${item.product.title}`);
+                        }
+                    }
+                }
+
+                const createdOrder = await StoreOrderRepository.create({
+                    creator_id: creator.id,
+                    product_id: lineItems[0].product.id,
+                    buyer_email: data.buyer_email,
+                    buyer_name: data.buyer_name ?? null,
+                    buyer_phone: data.buyer_phone ?? null,
+                    delivery_address: data.delivery_address ?? null,
+                    status: "pending",
+                    amount: total,
+                    amount_minor: amountMinor,
+                    subtotal,
+                    total,
+                    item_count: lineItems.reduce((sum, l) => sum + l.quantity, 0),
+                    platform_fee: platformFee,
+                    platform_fee_minor: platformFeeMinor,
+                    currency: currency || "NGN",
+                    reference,
+                    provider: provider.providerName,
+                    metadata: {
+                        product_type: "cart",
+                        has_digital: hasDigital,
+                        has_physical: requiresAddress,
+                        platform_fee_rate: this.PLATFORM_FEE_RATE,
+                    },
+                } as any, {}, trx);
+
+                for (const item of lineItems) {
+                    await StoreOrderItemRepository.create({
+                        order_id: createdOrder.id,
+                        product_id: item.product.id,
+                        title_snapshot: item.product.title,
+                        type_snapshot: item.product.type,
+                        unit_price: Number(item.product.price),
+                        quantity: item.quantity,
+                        line_total: item.lineTotal,
+                        currency: item.product.currency,
+                        metadata: null,
+                    } as any, {}, trx);
+                }
+
+                return createdOrder;
+            });
+
+            const paymentResult = await provider.initializePayment({
+                amount: amountMinor,
+                email: data.buyer_email,
+                reference,
+                metadata: {
+                    order_id: order.id,
+                    creator_id: creator.id,
+                    type: "store_order",
+                    product_type: "cart",
+                    item_count: order.item_count,
+                },
+                callback_url: callbackUrl,
+            });
+
+            if (!paymentResult.success) {
+                await StoreOrderRepository.updateStatus(order.id, "failed");
+                return BadRequest("Failed to initialize payment");
+            }
+
+            return Ok({
+                authorization_url: paymentResult.authorization_url,
+                reference: paymentResult.reference,
+                order_id: order.id,
+            }, "Cart payment initialized successfully");
         } catch (err: any) {
             return InternalError(err.message);
         }
@@ -659,7 +928,8 @@ export class StoreService {
             const order = await StoreOrderRepository.findById(tokenRecord.order_id);
             if (!order || order.status !== "paid") return BadRequest("Order not available");
 
-            const product = await StoreProductRepository.findById(order.product_id);
+            const productId = tokenRecord.product_id || order.product_id;
+            const product = await StoreProductRepository.findById(productId);
             if (!product || product.type !== "digital") return BadRequest("Product not available");
             if (!product.file_url && !product.file_id) return BadRequest("File not available");
 
@@ -876,17 +1146,23 @@ export class StoreService {
             const order = await StoreOrderRepository.getByReferenceWithProduct(reference);
             if (!order) return NotFound("Order not found");
 
+            const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
+            const hasDigitalItem = orderItems.some((item) => item.type_snapshot === "digital")
+                || order.product?.type === "digital";
             let downloadToken: string | null = null;
-            if (order.status === "paid" && order.product?.type === "digital") {
-                let tokenRecord = await StoreDownloadTokenRepository.getOneWhere({ order_id: order.id });
-                if (!tokenRecord) {
-                    tokenRecord = await StoreDownloadTokenRepository.create({
+            let downloadTokens: any[] = [];
+            if (order.status === "paid" && hasDigitalItem) {
+                downloadTokens = await StoreDownloadTokenRepository.getAllWhere({ order_id: order.id });
+                if (downloadTokens.length === 0 && order.product?.type === "digital") {
+                    const tokenRecord = await StoreDownloadTokenRepository.create({
                         order_id: order.id,
+                        product_id: null,
                         token: this.generateDownloadToken(),
                         max_downloads: order.product?.download_limit || 3,
                     } as any);
+                    downloadTokens = [tokenRecord];
                 }
-                downloadToken = tokenRecord?.token || null;
+                downloadToken = downloadTokens[0]?.token || null;
             }
 
             let booking: any = null;
@@ -895,8 +1171,12 @@ export class StoreService {
             }
 
             return Ok({
-                order,
+                order: {
+                    ...order,
+                    items: orderItems,
+                },
                 download_token: downloadToken,
+                download_tokens: downloadTokens,
                 booking,
             }, "Order retrieved");
         } catch (err: any) {
@@ -915,13 +1195,17 @@ export class StoreService {
             if (order.status !== "paid") return BadRequest("Order is not paid");
 
             const product = (order as any).product;
+            const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
+            const itemSummary = orderItems.length > 0
+                ? `${orderItems.length} item(s)`
+                : (product?.title || "Product");
             const booking = await ServiceBookingRepository.getOneWhere({ order_id: order.id });
 
             if (creator?.user?.email) {
                 await MailService.sendCreatorOrderEmail(
                     creator.user.email,
                     creator.first_name || creator.username,
-                    product?.title || "Product",
+                    itemSummary,
                     order.amount,
                     order.buyer_email,
                     order.buyer_name,
@@ -938,7 +1222,7 @@ export class StoreService {
             await MailService.sendOrderConfirmationEmail(
                 order.buyer_email,
                 order.buyer_name,
-                product?.title || "Product",
+                itemSummary,
                 order.amount,
                 order.reference
             );

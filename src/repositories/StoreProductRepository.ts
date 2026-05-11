@@ -21,6 +21,8 @@ export interface StoreProductRecord {
     buffer_minutes: number | null;
     timezone: string | null;
     requires_address: boolean;
+    track_inventory: boolean;
+    stock_quantity: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -41,6 +43,11 @@ class StoreProductRepositoryClass extends BaseRepository<StoreProductRecord, Sto
     async getActiveByCreatorId(creatorId: number, limit = 50, offset = 0): Promise<StoreProductRecord[]> {
         return await StoreProductModel.query()
             .where({ creator_id: creatorId, is_active: true })
+            .where((qb) => {
+                qb.whereNot({ type: "physical" })
+                    .orWhere({ track_inventory: false })
+                    .orWhere("stock_quantity", ">", 0);
+            })
             .orderBy("created_at", "desc")
             .limit(limit)
             .offset(offset);

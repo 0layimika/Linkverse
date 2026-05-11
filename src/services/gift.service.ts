@@ -4,6 +4,7 @@ import { TransactionRepository } from "../repositories/TransactionRepository";
 import { CreatorRepository } from "../repositories/CreatorRepository";
 import { WalletService } from "./wallet.service";
 import { getPaymentProvider } from "../providers/PaymentProviderFactory";
+import { KoraProvider, PaystackProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
 import { FRONTEND_URL } from "../config/env";
 import { MailService } from "./mail.service";
@@ -158,7 +159,9 @@ export class GiftService {
 
     static async handleWebhook(_provider: 'paystack' | 'kora', payload: string, signature: string, body: any) {
         try {
-            const paymentProvider = getPaymentProvider();
+            const paymentProvider = _provider === 'kora'
+                ? new KoraProvider()
+                : new PaystackProvider();
 
             // Verify webhook signature
             if (!paymentProvider.verifyWebhookSignature(payload, signature)) {
@@ -179,9 +182,15 @@ export class GiftService {
                 }
 
                 if (transaction.type === 'gift') {
+                    // Resolve amount from provider event payload when available.
+                    // Paystack sends minor units (kobo); Kora sends major units (naira).
+                    const amountFromEvent = Number(event.data.amount);
+                    const creditedAmount = Number.isFinite(amountFromEvent) && amountFromEvent > 0
+                        ? (_provider === 'paystack' ? amountFromEvent / 100 : amountFromEvent)
+                        : transaction.amount;
                     await WalletService.creditWallet(
                         transaction.wallet_id,
-                        transaction.amount,
+                        creditedAmount,
                         transaction.id
                     );
 

@@ -5,6 +5,7 @@ import { Transaction } from "objection";
 export interface StoreDownloadTokenRecord {
     id: number;
     order_id: number;
+    product_id: number | null;
     token: string;
     max_downloads: number;
     download_count: number;
