@@ -243,6 +243,8 @@ export class StoreService {
                 title: data.title,
                 description: data.description ?? null,
                 price: data.price,
+                // Backward compatibility: some deployed schemas still have a non-null `amount` column.
+                amount: data.price,
                 currency: data.currency || "NGN",
                 cover_url: data.cover_url ?? null,
                 is_active: data.is_active ?? true,
@@ -284,7 +286,13 @@ export class StoreService {
                 }
             }
 
-            const updated = await StoreProductRepository.update(productId, data as any);
+            const payload: any = { ...data };
+            // Keep legacy `amount` column in sync where present.
+            if (typeof data.price === "number") {
+                payload.amount = data.price;
+            }
+
+            const updated = await StoreProductRepository.update(productId, payload);
             return Ok(updated, "Product updated successfully");
         } catch (err: any) {
             return InternalError(err.message);
