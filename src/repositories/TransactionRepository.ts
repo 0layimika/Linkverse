@@ -49,6 +49,15 @@ class TransactionRepositoryClass extends BaseRepository<TransactionRecord, Trans
             .offset(offset);
     }
 
+    async getTransactionsForWallets(walletIds: number[], limit = 50, offset = 0): Promise<TransactionRecord[]> {
+        if (!walletIds.length) return [];
+        return await TransactionModel.query()
+            .whereIn('wallet_id', walletIds)
+            .orderBy('created_at', 'desc')
+            .limit(limit)
+            .offset(offset);
+    }
+
     async getGiftsForWallet(walletId: number, limit = 50, offset = 0): Promise<TransactionRecord[]> {
         return await TransactionModel.query()
             .where({ wallet_id: walletId, type: 'gift' })
@@ -57,9 +66,29 @@ class TransactionRepositoryClass extends BaseRepository<TransactionRecord, Trans
             .offset(offset);
     }
 
+    async getGiftsForWallets(walletIds: number[], limit = 50, offset = 0): Promise<TransactionRecord[]> {
+        if (!walletIds.length) return [];
+        return await TransactionModel.query()
+            .whereIn('wallet_id', walletIds)
+            .where({ type: 'gift' })
+            .orderBy('created_at', 'desc')
+            .limit(limit)
+            .offset(offset);
+    }
+
     async getWithdrawalsForWallet(walletId: number, limit = 50, offset = 0): Promise<TransactionRecord[]> {
         return await TransactionModel.query()
             .where({ wallet_id: walletId, type: 'withdrawal' })
+            .orderBy('created_at', 'desc')
+            .limit(limit)
+            .offset(offset);
+    }
+
+    async getWithdrawalsForWallets(walletIds: number[], limit = 50, offset = 0): Promise<TransactionRecord[]> {
+        if (!walletIds.length) return [];
+        return await TransactionModel.query()
+            .whereIn('wallet_id', walletIds)
+            .where({ type: 'withdrawal' })
             .orderBy('created_at', 'desc')
             .limit(limit)
             .offset(offset);

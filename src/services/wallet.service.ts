@@ -52,15 +52,20 @@ export class WalletService {
                 return NotFound("Creator profile not found");
             }
 
-            const wallet = await this.getOrCreateWallet(creator.id);
+            const wallets = await WalletRepository.getAllByCreatorId(creator.id);
+            if (!wallets.length) {
+                const wallet = await this.getOrCreateWallet(creator.id);
+                wallets.push(wallet);
+            }
+            const walletIds = wallets.map((w) => w.id);
 
             let transactions;
             if (type === 'gift') {
-                transactions = await TransactionRepository.getGiftsForWallet(wallet.id, limit, offset);
+                transactions = await TransactionRepository.getGiftsForWallets(walletIds, limit, offset);
             } else if (type === 'withdrawal') {
-                transactions = await TransactionRepository.getWithdrawalsForWallet(wallet.id, limit, offset);
+                transactions = await TransactionRepository.getWithdrawalsForWallets(walletIds, limit, offset);
             } else {
-                transactions = await TransactionRepository.getTransactionsForWallet(wallet.id, limit, offset);
+                transactions = await TransactionRepository.getTransactionsForWallets(walletIds, limit, offset);
             }
 
             return Ok(transactions, "Transactions retrieved successfully");

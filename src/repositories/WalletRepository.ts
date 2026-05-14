@@ -20,6 +20,10 @@ class WalletRepositoryClass extends BaseRepository<Wallet, WalletModel> {
         return await WalletModel.query().findOne({ creator_id: creatorId });
     }
 
+    async getAllByCreatorId(creatorId: number): Promise<Wallet[]> {
+        return await WalletModel.query().where({ creator_id: creatorId }).orderBy("created_at", "asc");
+    }
+
     async creditWallet(walletId: number, amount: number, trx?: Transaction): Promise<Wallet> {
         return await WalletModel.query(trx)
             .patchAndFetchById(walletId, {
