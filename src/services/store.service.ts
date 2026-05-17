@@ -299,6 +299,22 @@ export class StoreService {
         }
     }
 
+    static async deleteProduct(userId: number, productId: number) {
+        try {
+            const creator = await CreatorRepository.getOneWhere({ user_id: userId });
+            if (!creator) return NotFound("Creator profile not found");
+
+            const product = await StoreProductRepository.findById(productId);
+            if (!product) return NotFound("Product not found");
+            if (product.creator_id !== creator.id) return BadRequest("You do not own this product");
+
+            const updated = await StoreProductRepository.update(productId, { is_active: false } as any);
+            return Ok(updated, "Product deleted successfully");
+        } catch (err: any) {
+            return InternalError(err.message);
+        }
+    }
+
     static async listMyProducts(userId: number, limit = 20, offset = 0) {
         try {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });

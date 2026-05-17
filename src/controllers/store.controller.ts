@@ -4,6 +4,7 @@ import { StoreService } from "../services/store.service";
 import {
     createProductSchema,
     updateProductSchema,
+    deleteProductSchema,
     paginationSchema,
     getStorefrontSchema,
     initiatePurchaseSchema,
@@ -46,6 +47,16 @@ export class StoreController {
         try {
             const { params, body } = req as updateProductSchema;
             const result = await StoreService.updateProduct(req.user.id, Number(params.id), body);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
+
+    static async deleteProduct(req: any, res: Response): Promise<any> {
+        try {
+            const { params } = req as deleteProductSchema;
+            const result = await StoreService.deleteProduct(req.user.id, Number(params.id));
             return ExpressResponse(res, result);
         } catch (err: any) {
             return ExpressResponse(res, InternalError(err.message));
