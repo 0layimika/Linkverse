@@ -55,6 +55,14 @@ export const updateProductSchema = z.object({
 
 export type updateProductSchema = z.infer<typeof updateProductSchema>;
 
+export const deleteProductSchema = z.object({
+    params: z.object({
+        id: z.string({ message: "Product ID is required" }),
+    }),
+});
+
+export type deleteProductSchema = z.infer<typeof deleteProductSchema>;
+
 export const paginationSchema = z.object({
     query: z.object({
         limit: z.string().regex(/^\d+$/, "Limit must be a number").optional(),

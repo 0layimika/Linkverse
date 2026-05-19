@@ -5,6 +5,7 @@ import { auth } from "../middlewares/auth.middleware";
 import {
     createProductSchema,
     updateProductSchema,
+    deleteProductSchema,
     paginationSchema,
     getStorefrontSchema,
     initiatePurchaseSchema,
@@ -35,6 +36,7 @@ router.get("/download/:token", validate(downloadSchema), StoreController.downloa
 router.post("/products", auth, validate(createProductSchema), StoreController.createProduct);
 router.get("/products", auth, validate(paginationSchema), StoreController.listMyProducts);
 router.patch("/products/:id", auth, validate(updateProductSchema), StoreController.updateProduct);
+router.delete("/products/:id", auth, validate(deleteProductSchema), StoreController.deleteProduct);
 
 router.get("/orders", auth, validate(paginationSchema), StoreController.listOrders);
 router.patch("/orders/:id/status", auth, validate(updateOrderStatusSchema), StoreController.updateOrderStatus);
