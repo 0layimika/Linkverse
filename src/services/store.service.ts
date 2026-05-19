@@ -272,7 +272,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });
             if (!creator) return NotFound("Creator profile not found");
 
-            const product = await StoreProductRepository.findById(productId);
+            const product = await StoreProductRepository.findVisibleById(productId);
             if (!product) return NotFound("Product not found");
             if (product.creator_id !== creator.id) return BadRequest("You do not own this product");
             const nextType = data.type || product.type;
@@ -304,11 +304,14 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });
             if (!creator) return NotFound("Creator profile not found");
 
-            const product = await StoreProductRepository.findById(productId);
+            const product = await StoreProductRepository.findVisibleById(productId);
             if (!product) return NotFound("Product not found");
             if (product.creator_id !== creator.id) return BadRequest("You do not own this product");
 
-            const updated = await StoreProductRepository.update(productId, { is_active: false } as any);
+            const updated = await StoreProductRepository.update(productId, {
+                is_active: false,
+                deleted_at: new Date().toISOString(),
+            } as any);
             return Ok(updated, "Product deleted successfully");
         } catch (err: any) {
             return InternalError(err.message);
@@ -354,7 +357,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ username });
             if (!creator) return NotFound("Creator not found");
 
-            const product = await StoreProductRepository.findById(productId);
+            const product = await StoreProductRepository.findVisibleById(productId);
             if (!product || product.creator_id !== creator.id) return NotFound("Product not found");
             if (!product.is_active) return BadRequest("Product is not available");
             if (product.type === "physical" && product.track_inventory && (product.stock_quantity || 0) <= 0) {
@@ -508,7 +511,7 @@ export class StoreService {
             const order = await StoreOrderRepository.getByReference(reference);
             if (!order) return NotFound("Order not found");
             const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
-            const primaryProduct = await StoreProductRepository.findById(order.product_id);
+            const primaryProduct = await StoreProductRepository.findVisibleById(order.product_id);
             const product = primaryProduct || (orderItems.length > 0 ? ({ title: "Cart order", type: "physical", duration_minutes: null, download_limit: 3 } as any) : null);
             if (!product) return NotFound("Product not found");
 
@@ -641,7 +644,7 @@ export class StoreService {
                     }
                 }
                 if (orderItems.length === 0 && product.type === "physical" && product.track_inventory) {
-                    const liveProduct = await StoreProductRepository.findById(product.id, {}, {}, trx);
+                    const liveProduct = await StoreProductRepository.findVisibleById(product.id, trx);
                     if (!liveProduct) throw new Error("Product not found");
                     if ((liveProduct.stock_quantity || 0) < 1) {
                         throw new Error(`Insufficient stock for ${product.title}`);
@@ -800,7 +803,7 @@ export class StoreService {
             }
 
             const normalizedItems = Array.from(merged.entries()).map(([product_id, quantity]) => ({ product_id, quantity }));
-            const products = await Promise.all(normalizedItems.map((item) => StoreProductRepository.findById(item.product_id)));
+            const products = await Promise.all(normalizedItems.map((item) => StoreProductRepository.findVisibleById(item.product_id)));
 
             let currency: string | null = null;
             let requiresAddress = false;
@@ -953,7 +956,7 @@ export class StoreService {
             if (!order || order.status !== "paid") return BadRequest("Order not available");
 
             const productId = tokenRecord.product_id || order.product_id;
-            const product = await StoreProductRepository.findById(productId);
+            const product = await StoreProductRepository.findVisibleById(productId);
             if (!product || product.type !== "digital") return BadRequest("Product not available");
             if (!product.file_url && !product.file_id) return BadRequest("File not available");
 
@@ -1367,7 +1370,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ username });
             if (!creator) return NotFound("Creator not found");
 
-            const service = await StoreProductRepository.findById(serviceId);
+            const service = await StoreProductRepository.findVisibleById(serviceId);
             if (!service || service.creator_id !== creator.id) return NotFound("Service not found");
             if (service.type !== "service") return BadRequest("Product is not a service");
 
@@ -1388,7 +1391,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });
             if (!creator) return NotFound("Creator profile not found");
 
-            const service = await StoreProductRepository.findById(serviceId);
+            const service = await StoreProductRepository.findVisibleById(serviceId);
             if (!service || service.creator_id !== creator.id) return NotFound("Service not found");
             if (service.type !== "service") return BadRequest("Product is not a service");
 
@@ -1404,7 +1407,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ username });
             if (!creator) return NotFound("Creator not found");
 
-            const service = await StoreProductRepository.findById(serviceId);
+            const service = await StoreProductRepository.findVisibleById(serviceId);
             if (!service || service.creator_id !== creator.id) return NotFound("Service not found");
             if (service.type !== "service") return BadRequest("Product is not a service");
 
@@ -1482,7 +1485,7 @@ export class StoreService {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });
             if (!creator) return NotFound("Creator profile not found");
 
-            const service = await StoreProductRepository.findById(data.service_id);
+            const service = await StoreProductRepository.findVisibleById(data.service_id);
             if (!service || service.creator_id !== creator.id) return NotFound("Service not found");
             if (service.type !== "service") return BadRequest("Product is not a service");
 

@@ -1,6 +1,7 @@
 import { BaseRepository } from "./BaseRepository";
 import { StoreProductModel } from "../models/StoreProductModel";
 import { StoreProductType } from "../types/store.types";
+import { Transaction } from "objection";
 
 export interface StoreProductRecord {
     id: number;
@@ -23,6 +24,7 @@ export interface StoreProductRecord {
     requires_address: boolean;
     track_inventory: boolean;
     stock_quantity: number | null;
+    deleted_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -35,6 +37,7 @@ class StoreProductRepositoryClass extends BaseRepository<StoreProductRecord, Sto
     async getByCreatorId(creatorId: number, limit = 20, offset = 0): Promise<StoreProductRecord[]> {
         return await StoreProductModel.query()
             .where({ creator_id: creatorId })
+            .whereNull("deleted_at")
             .orderBy("created_at", "desc")
             .limit(limit)
             .offset(offset);
@@ -43,6 +46,7 @@ class StoreProductRepositoryClass extends BaseRepository<StoreProductRecord, Sto
     async getActiveByCreatorId(creatorId: number, limit = 50, offset = 0): Promise<StoreProductRecord[]> {
         return await StoreProductModel.query()
             .where({ creator_id: creatorId, is_active: true })
+            .whereNull("deleted_at")
             .where((qb) => {
                 qb.whereNot({ type: "physical" })
                     .orWhere({ track_inventory: false })
@@ -51,6 +55,12 @@ class StoreProductRepositoryClass extends BaseRepository<StoreProductRecord, Sto
             .orderBy("created_at", "desc")
             .limit(limit)
             .offset(offset);
+    }
+
+    async findVisibleById(id: number | string, transaction?: Transaction): Promise<StoreProductRecord | undefined> {
+        return await StoreProductModel.query(transaction)
+            .findById(id)
+            .whereNull("deleted_at");
     }
 }
 

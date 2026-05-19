@@ -25,6 +25,7 @@ export class StoreProductModel extends Model {
     requires_address!: boolean;
     track_inventory!: boolean;
     stock_quantity!: number | null;
+    deleted_at!: string | null;
     created_at!: string;
     updated_at!: string;
 
