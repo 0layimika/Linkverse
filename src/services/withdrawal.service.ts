@@ -120,20 +120,17 @@ export class WithdrawalService {
     }
 
     static async initiateWithdrawal(userId: number, data: WithdrawalData) {
-        const trx = await knex.transaction();
+        let trx: any;
         try {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId }, { user: true });
             if (!creator) {
-                await trx.rollback();
                 return NotFound("Creator profile not found");
             }
             const user = await userRepo.getOneWhere({ id: creator.user_id });
             if (!user) {
-                await trx.rollback();
                 return NotFound("User not found");
             }
             if (!user.password_hash || !(await bcrypt.compare(data.password, user.password_hash))) {
-                await trx.rollback();
                 return BadRequest("Incorrect password");
             }
 
@@ -143,20 +140,17 @@ export class WithdrawalService {
             // Check minimum amount
             const minimum = currency === 'USD' ? 1 : MINIMUM_WITHDRAWAL_AMOUNT;
             if (data.amount < minimum) {
-                await trx.rollback();
                 return BadRequest(`Minimum withdrawal amount is ${minimum} ${currency}`);
             }
 
             // Check wallet balance
             if (wallet.balance < data.amount) {
-                await trx.rollback();
                 return BadRequest("Insufficient balance");
             }
 
             // Get bank account
             const bankAccount = await BankAccountRepository.getByCreatorId(creator.id);
             if (!bankAccount) {
-                await trx.rollback();
                 return BadRequest("Please set up your bank account for withdrawal");
             }
 
@@ -171,7 +165,6 @@ export class WithdrawalService {
                 });
 
                 if (!recipientResult.success) {
-                    await trx.rollback();
                     return BadRequest("Could not create transfer recipient");
                 }
 
@@ -185,6 +178,11 @@ export class WithdrawalService {
 
             const reference = this.generateReference();
             const amountInKobo = data.amount * 100;
+
+            // Only hold a database connection for the atomic debit + pending
+            // transaction write. In production the pool may have max=1; the
+            // preflight reads above must therefore happen before opening trx.
+            trx = await knex.transaction();
 
             // Debit wallet
             await WalletRepository.debitWallet(wallet.id, data.amount, trx, {
@@ -234,7 +232,7 @@ export class WithdrawalService {
                 amount: data.amount,
             }, "Withdrawal initiated successfully");
         } catch (err: any) {
-            await trx.rollback();
+            if (trx) await trx.rollback();
             return InternalError(err.message);
         }
     }
