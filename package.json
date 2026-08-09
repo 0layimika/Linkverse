@@ -8,7 +8,7 @@
   "scripts": {
     "knex": "knex",
     "build": "tsc",
-    "start:prod": "node dist/index.js",
+    "start:prod": "npm run migrate && node dist/index.js",
     "test": "npm run build && node --test dist/utils/*.test.js",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
