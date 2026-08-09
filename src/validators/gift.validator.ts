@@ -5,7 +5,8 @@ export const initiateGiftSchema = z.object({
         username: z.string({ message: "Creator username is required" }),
     }),
     body: z.object({
-        amount: z.number({ message: "Amount is required" }).min(100, "Minimum gift amount is 100 Naira"),
+        amount: z.number({ message: "Amount is required" }).positive(),
+        currency: z.enum(["NGN", "USD"]).default("NGN"),
         sender_name: z.string().optional(),
         sender_email: z.string({ message: "Email is required" }).email("Invalid email format"),
         description: z.string().max(200, "Description is too long").optional(),

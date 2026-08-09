@@ -22,9 +22,12 @@ import {
     blockSlotSchema,
     updateOrderStatusSchema,
     updateBookingStatusSchema,
+    storeCurrencySchema,
 } from "../validators/store.validator";
 
 export class StoreController {
+    static async getStoreCurrency(req: any, res: Response): Promise<any> { return ExpressResponse(res, await StoreService.getStoreCurrency(req.user.id)); }
+    static async setStoreCurrency(req: any, res: Response): Promise<any> { const { body } = req as storeCurrencySchema; return ExpressResponse(res, await StoreService.setStoreCurrency(req.user.id, body.currency)); }
     private static parsePagination(query: { limit?: string; offset?: string } | undefined) {
         const rawLimit = query?.limit ? parseInt(query.limit) : 20;
         const rawOffset = query?.offset ? parseInt(query.offset) : 0;

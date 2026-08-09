@@ -25,6 +25,7 @@ export interface StoreOrderRecord {
     metadata: Record<string, any> | null;
     created_at: string;
     updated_at: string;
+    expires_at: string | null;
 }
 
 class StoreOrderRepositoryClass extends BaseRepository<StoreOrderRecord, StoreOrderModel> {
@@ -48,6 +49,15 @@ class StoreOrderRepositoryClass extends BaseRepository<StoreOrderRecord, StoreOr
             updateData.provider_reference = providerReference;
         }
         return await StoreOrderModel.query().patchAndFetchById(id, updateData);
+    }
+
+    async transitionStatus(id: number, fromStatus: StoreOrderStatus, toStatus: StoreOrderStatus): Promise<StoreOrderRecord | undefined> {
+        const updated = await StoreOrderModel.query()
+            .patch({ status: toStatus })
+            .where({ id, status: fromStatus })
+            .returning("*")
+            .first();
+        return updated as StoreOrderRecord | undefined;
     }
 
     async getByCreatorId(creatorId: number, limit = 20, offset = 0): Promise<StoreOrderRecord[]> {

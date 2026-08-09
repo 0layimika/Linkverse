@@ -23,6 +23,7 @@ import {
     blockSlotSchema,
     updateOrderStatusSchema,
     updateBookingStatusSchema,
+    storeCurrencySchema,
 } from "../validators/store.validator";
 
 const router = Router();
@@ -36,6 +37,8 @@ router.get("/download/:token", validate(downloadSchema), StoreController.downloa
 router.post("/products", auth, validate(createProductSchema), StoreController.createProduct);
 router.get("/products", auth, validate(paginationSchema), StoreController.listMyProducts);
 router.patch("/products/:id", auth, validate(updateProductSchema), StoreController.updateProduct);
+router.get("/settings/currency", auth, StoreController.getStoreCurrency);
+router.patch("/settings/currency", auth, validate(storeCurrencySchema), StoreController.setStoreCurrency);
 router.delete("/products/:id", auth, validate(deleteProductSchema), StoreController.deleteProduct);
 
 router.get("/orders", auth, validate(paginationSchema), StoreController.listOrders);

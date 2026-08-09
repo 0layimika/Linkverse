@@ -9,6 +9,9 @@ export interface ClickEvent {
     ip_hash: string;
     user_agent: string | null;
     referrer: string | null;
+    source: string | null;
+    medium: string | null;
+    campaign: string | null;
     created_at: string;
 }
 

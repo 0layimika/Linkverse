@@ -19,18 +19,26 @@ function getHeader(req: Request, name: string): string | undefined {
     return header;
 }
 
+function getAttribution(req: Request) {
+    const query = req.query as Record<string, string | undefined>;
+    const rawReferrer = getHeader(req, "referer") || getHeader(req, "referrer");
+    let source = query.utm_source?.trim().toLowerCase();
+    if (!source && rawReferrer) {
+        try { source = new URL(rawReferrer).hostname.replace(/^www\./, '').split('.')[0]; } catch { source = undefined; }
+    }
+    return { referrer: rawReferrer, source: source || 'direct', medium: query.utm_medium?.trim().toLowerCase(), campaign: query.utm_campaign?.trim() };
+}
+
 export class AnalyticsController {
     static async trackProfileView(req: Request, res: Response) {
         try {
             const username = req.params.username as string;
             const ip = getClientIp(req);
             const userAgent = getHeader(req, "user-agent");
-            const referrer = getHeader(req, "referer") || getHeader(req, "referrer");
-
             const result = await AnalyticsService.trackProfileView(username, {
                 ip,
                 userAgent,
-                referrer,
+                ...getAttribution(req),
             });
             return ExpressResponse(res, result);
         } catch (err: any) {
@@ -43,12 +51,10 @@ export class AnalyticsController {
             const linkId = parseInt(req.params.linkId as string);
             const ip = getClientIp(req);
             const userAgent = getHeader(req, "user-agent");
-            const referrer = getHeader(req, "referer") || getHeader(req, "referrer");
-
             const result = await AnalyticsService.trackLinkClick(linkId, {
                 ip,
                 userAgent,
-                referrer,
+                ...getAttribution(req),
             });
             return ExpressResponse(res, result);
         } catch (err: any) {

@@ -29,6 +29,7 @@ export class StoreOrderModel extends Model {
     metadata!: Record<string, any> | null;
     created_at!: string;
     updated_at!: string;
+    expires_at!: string | null;
 
     static get relationMappings() {
         return {

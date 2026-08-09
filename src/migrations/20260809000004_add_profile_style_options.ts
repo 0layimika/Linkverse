@@ -1,0 +1,3 @@
+import { Knex } from "knex";
+export async function up(knex: Knex): Promise<void> { await knex.schema.alterTable("profile_config", (table) => { table.string("accent_color", 16).nullable(); table.string("card_style", 16).nullable(); table.string("profile_alignment", 16).nullable(); table.string("avatar_shape", 16).nullable(); table.string("avatar_size", 16).nullable(); table.string("support_button_style", 16).nullable(); }); }
+export async function down(knex: Knex): Promise<void> { await knex.schema.alterTable("profile_config", (table) => { table.dropColumn("accent_color"); table.dropColumn("card_style"); table.dropColumn("profile_alignment"); table.dropColumn("avatar_shape"); table.dropColumn("avatar_size"); table.dropColumn("support_button_style"); }); }

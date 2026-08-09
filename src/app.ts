@@ -13,6 +13,7 @@ import profileRoute from "./routes/profile.route";
 import analyticsRoute from "./routes/analytics.route";
 import storeRoute from "./routes/store.route";
 import { ALLOWED_ORIGINS, FRONTEND_URL } from "./config/env";
+import { MailService } from "./services/mail.service";
 
 const app = express();
 
@@ -63,7 +64,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({ verify: (req: Request & { rawBody?: string }, _res, buf) => { req.rawBody = buf.toString('utf8'); } }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // routes
@@ -95,6 +96,12 @@ app.get('/api/v1/debug-cors', (req: Request, res: Response) => {
         allHeaders: req.headers
     });
 });
+
+if (process.env.NODE_ENV !== 'production') {
+    app.get('/api/v1/dev/email-previews', (_req: Request, res: Response) => {
+        res.type('html').send(MailService.previewGallery());
+    });
+}
 
 // 404 handler - must be last
 app.use((_req: Request, res: Response) => {

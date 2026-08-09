@@ -26,21 +26,24 @@ const statusMap: Record<string, number> = {
     'InternalError': 500,
 };
 
+export function getResponseStatus(response: ApiResponse<unknown>): number {
+    if (response.success) {
+        return 200;
+    }
+
+    const code = response.error?.code;
+    if (!code) {
+        return 500;
+    }
+
+    return statusMap[code.replace(/_/g, "")] || 500;
+}
+
 /**
  * Fixed ExpressResponse that properly handles status code mapping
  * Fixes the issue where uppercase error codes (FORBIDDEN) don't map correctly to status codes
  * This replaces the original ExpressResponse from @0layimika/api-response-kit
  */
 export function ExpressResponse(res: Response, response: ApiResponse<unknown>): void {
-    let status = 200;
-
-    if (response.success) {
-        status = 200;
-    } else if (response.error?.code) {
-        // Try to get status from our enhanced status map (handles both cases)
-        status = statusMap[response.error.code] || 500;
-    }
-
-    res.status(status).json(response);
+    res.status(getResponseStatus(response)).json(response);
 }
-

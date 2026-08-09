@@ -8,8 +8,9 @@ import { getPaymentProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
 import knex from "../db/knex";
 import { UserRepository } from '../repositories/UserRepository';
+import bcrypt from 'bcryptjs';
 
-const MINIMUM_WITHDRAWAL_AMOUNT = 1000; // 5000 Naira
+const MINIMUM_WITHDRAWAL_AMOUNT = 1000; // NGN minimum
 const userRepo = new UserRepository();
 export interface SetBankAccountData {
     account_number: string;
@@ -17,7 +18,9 @@ export interface SetBankAccountData {
 }
 
 export interface WithdrawalData {
-    amount: number; // in naira
+    amount: number; // major currency unit
+    currency?: 'NGN' | 'USD';
+    password: string;
 }
 
 export class WithdrawalService {
@@ -129,13 +132,19 @@ export class WithdrawalService {
                 await trx.rollback();
                 return NotFound("User not found");
             }
+            if (!user.password_hash || !(await bcrypt.compare(data.password, user.password_hash))) {
+                await trx.rollback();
+                return BadRequest("Incorrect password");
+            }
 
-            const wallet = await WalletService.getOrCreateWallet(creator.id);
+            const currency = data.currency || 'NGN';
+            const wallet = await WalletService.getOrCreateWallet(creator.id, currency);
 
             // Check minimum amount
-            if (data.amount < MINIMUM_WITHDRAWAL_AMOUNT) {
+            const minimum = currency === 'USD' ? 1 : MINIMUM_WITHDRAWAL_AMOUNT;
+            if (data.amount < minimum) {
                 await trx.rollback();
-                return BadRequest(`Minimum withdrawal amount is ${MINIMUM_WITHDRAWAL_AMOUNT} Naira`);
+                return BadRequest(`Minimum withdrawal amount is ${minimum} ${currency}`);
             }
 
             // Check wallet balance
@@ -178,15 +187,19 @@ export class WithdrawalService {
             const amountInKobo = data.amount * 100;
 
             // Debit wallet
-            await WalletRepository.debitWallet(wallet.id, data.amount, trx);
+            await WalletRepository.debitWallet(wallet.id, data.amount, trx, {
+                reference: `withdrawal:${reference}:debit`,
+                entryType: "withdrawal",
+                metadata: { withdrawal_reference: reference },
+            });
 
             // Create pending transaction
             const transaction = await TransactionRepository.create({
                 wallet_id: wallet.id,
                 type: 'withdrawal',
                 amount: data.amount,
-                currency: 'NGN',
-                status: 'completed',
+                currency,
+                status: 'pending',
                 reference,
                 provider: provider.providerName,
                 description: `Withdrawal to ${bankAccount.bank_name} - ${bankAccount.account_number}`,
@@ -204,6 +217,7 @@ export class WithdrawalService {
                 reference,
                 reason: 'CreatorLink Withdrawal',
                 email: user.email || '',
+                currency,
             });
 
             if (!transferResult.success) {

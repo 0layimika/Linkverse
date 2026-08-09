@@ -10,6 +10,13 @@ export class ProfileConfigModel extends Model {
     background_value!: string | null;
     text_color!: string | null;
     support_button_text!: string | null;
+    accent_color!: string | null;
+    card_style!: string | null;
+    profile_alignment!: string | null;
+    avatar_shape!: string | null;
+    avatar_size!: string | null;
+    support_button_style!: string | null;
+    support_enabled!: boolean;
     created_at!: string;
     updated_at!: string;
 

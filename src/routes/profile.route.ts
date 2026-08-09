@@ -7,6 +7,8 @@ import {
     getProfileConfigSchema,
     updateProfileConfigSchema,
     getProfileQRSchema,
+    getSocialLinksSchema,
+    replaceSocialLinksSchema,
 } from '../validators/profile.validator';
 
 const router = Router();
@@ -14,6 +16,8 @@ const router = Router();
 // Profile config routes - auth required (must be before :username)
 router.get('/config', auth, validate(getProfileConfigSchema), ProfileController.getProfileConfig);
 router.patch('/config', auth, validate(updateProfileConfigSchema), ProfileController.updateProfileConfig);
+router.get('/social-links', auth, validate(getSocialLinksSchema), ProfileController.getSocialLinks);
+router.put('/social-links', auth, validate(replaceSocialLinksSchema), ProfileController.replaceSocialLinks);
 
 // Public QR code - no auth required
 router.get('/:username/qr', validate(getProfileQRSchema), ProfileController.getQRCode);

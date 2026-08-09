@@ -34,15 +34,33 @@ export class ProfileController {
         }
     }
 
+    static async getSocialLinks(req: Request, res: Response) {
+        try {
+            const result = await ProfileService.getSocialLinks(req.user!.id);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
+
+    static async replaceSocialLinks(req: Request, res: Response) {
+        try {
+            const result = await ProfileService.replaceSocialLinks(req.user!.id, req.body);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
+
     static async getQRCode(req: Request, res: Response) {
         try {
             const username = req.params.username as string;
-            const creator = await CreatorRepository.getOneWhere({ username });
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) {
                 return ExpressResponse(res, NotFound("Creator not found"));
             }
 
-            const publicUrl = `${FRONTEND_URL.replace(/\/$/, "")}/${username}`;
+            const publicUrl = `${FRONTEND_URL.replace(/\/$/, "")}/${creator.username}`;
             const qrBuffer = await QRCode.toBuffer(publicUrl, {
                 type: "png",
                 width: 400,
@@ -50,7 +68,7 @@ export class ProfileController {
             });
 
             res.setHeader("Content-Type", "image/png");
-            res.setHeader("Content-Disposition", `attachment; filename="${username}-qr.png"`);
+            res.setHeader("Content-Disposition", `attachment; filename="${creator.username}-qr.png"`);
             res.send(qrBuffer);
         } catch (err: any) {
             return ExpressResponse(res, InternalError(err.message));

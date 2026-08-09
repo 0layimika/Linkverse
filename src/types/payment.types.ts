@@ -4,6 +4,7 @@ export interface InitializePaymentParams {
     reference: string;
     metadata?: Record<string, any>;
     callback_url?: string;
+    currency?: string;
 }
 
 export interface InitializePaymentResponse {
@@ -43,6 +44,8 @@ export interface CreateTransferRecipientParams {
     account_number: string;
     account_name: string;
     bank_code: string;
+    bank_name?: string;
+    currency?: string;
 }
 
 export interface CreateTransferRecipientResponse {
@@ -56,6 +59,7 @@ export interface InitiateTransferParams {
     reference: string;
     reason?: string;
     email?: string;
+    currency?: string;
 }
 
 export interface InitiateTransferResponse {
@@ -71,8 +75,9 @@ export interface WebhookEvent {
         reference: string;
         status: string;
         amount: number;
+        currency?: string;
         [key: string]: any;
     };
 }
 
-export type PaymentProviderType = 'paystack' | 'kora';
+export type PaymentProviderType = 'paystack' | 'kora' | 'bachs';

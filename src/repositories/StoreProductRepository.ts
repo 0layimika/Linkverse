@@ -57,6 +57,16 @@ class StoreProductRepositoryClass extends BaseRepository<StoreProductRecord, Sto
             .offset(offset);
     }
 
+    async getActivePhysicalByCreatorId(creatorId: number, limit = 20, offset = 0): Promise<StoreProductRecord[]> {
+        return await StoreProductModel.query()
+            .where({ creator_id: creatorId, is_active: true, type: "physical" })
+            .whereNull("deleted_at")
+            .where((qb) => qb.where({ track_inventory: false }).orWhere("stock_quantity", ">", 0))
+            .orderBy("created_at", "desc")
+            .limit(limit)
+            .offset(offset);
+    }
+
     async findVisibleById(id: number | string, transaction?: Transaction): Promise<StoreProductRecord | undefined> {
         return await StoreProductModel.query(transaction)
             .findById(id)

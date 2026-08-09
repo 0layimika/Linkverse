@@ -27,7 +27,7 @@ export abstract class PaymentProvider {
 
     abstract initiateTransfer(params: InitiateTransferParams): Promise<InitiateTransferResponse>;
 
-    abstract verifyWebhookSignature(payload: string, signature: string): boolean;
+    abstract verifyWebhookSignature(payload: string, signature: string, timestamp?: string): boolean;
 
     abstract parseWebhookEvent(body: any): WebhookEvent;
 }

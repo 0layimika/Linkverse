@@ -11,6 +11,7 @@ export class StoreProductModel extends Model {
     title!: string;
     description!: string | null;
     price!: number;
+    compare_at_price!: number | null;
     currency!: string;
     cover_url!: string | null;
     is_active!: boolean;

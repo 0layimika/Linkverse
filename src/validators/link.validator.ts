@@ -6,6 +6,8 @@ export const createLinkSchema = z.object({
         url: z.string({ message: "URL is required" }).url("Invalid URL format"),
         icon: z.string().optional(),
         thumbnail_url: z.string().url("Invalid thumbnail URL").nullable().optional(),
+        display_type: z.enum(["standard", "featured"]).optional(),
+        description: z.string().max(240).nullable().optional(),
     }),
 });
 
@@ -20,6 +22,8 @@ export const updateLinkSchema = z.object({
         url: z.string().url("Invalid URL format").optional(),
         icon: z.string().optional(),
         thumbnail_url: z.string().url("Invalid thumbnail URL").nullable().optional(),
+        display_type: z.enum(["standard", "featured"]).optional(),
+        description: z.string().max(240).nullable().optional(),
         position: z.number().int().positive().optional(),
     }),
 });

@@ -11,7 +11,12 @@ export type setBankAccountSchema = z.infer<typeof setBankAccountSchema>;
 
 export const initiateWithdrawalSchema = z.object({
     body: z.object({
-        amount: z.number({ message: "Amount is required" }).min(1000, "Minimum withdrawal amount is 1000 Naira"),
+        amount: z.number({ message: "Amount is required" }).positive(),
+        currency: z.enum(["NGN", "USD"]).default("NGN"),
+        password: z.string().min(1, "Password is required"),
+    }).superRefine((body, ctx) => {
+        const minimum = body.currency === "USD" ? 1 : 1000;
+        if (body.amount < minimum) ctx.addIssue({ code: z.ZodIssueCode.too_small, minimum, inclusive: true, origin: "number", message: `Minimum withdrawal amount is ${minimum} ${body.currency}` });
     }),
 });
 

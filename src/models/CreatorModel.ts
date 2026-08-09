@@ -13,6 +13,8 @@ export class CreatorModel extends Model {
     first_name!: string;
     last_name!: string;
     bio!: string;
+    display_name?: string | null;
+    store_currency!: 'NGN' | 'USD';
 
     // Optional: JSON schema for validation at DB level
     static get jsonSchema() {
@@ -25,6 +27,7 @@ export class CreatorModel extends Model {
                 username: { type: "string", minLength: 3, maxLength: 50 },
                 user_id: { type: "integer" },
                 avatar_url: { type: "string" },
+                display_name: { type: ["string", "null"], maxLength: 80 },
             },
         };
     }
@@ -63,6 +66,14 @@ export class CreatorModel extends Model {
                 join: {
                     from: "creators.id",
                     to: "bank_accounts.creator_id",
+                },
+            },
+            socialLinks: {
+                relation: Model.HasManyRelation,
+                modelClass: () => require("./CreatorSocialLinkModel").CreatorSocialLinkModel,
+                join: {
+                    from: "creators.id",
+                    to: "creator_social_links.creator_id",
                 },
             },
         };

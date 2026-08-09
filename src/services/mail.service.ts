@@ -3,25 +3,162 @@ import { FRONTEND_URL, RESEND_API_KEY, FROM_EMAIL } from "../config/env";
 
 const resend = new Resend(RESEND_API_KEY);
 
-export class MailService {
-    private static async sendEmail(
-        to: string | string[],
-        subject: string,
-        html: string
-    ): Promise<boolean> {
-        try {
-            const { error } = await resend.emails.send({
-                from: FROM_EMAIL,
-                to: Array.isArray(to) ? to : [to],
-                subject,
-                html,
-            });
+type OrderEmailItem = {
+    title: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+};
 
+export type OrderReceiptEmailData = {
+    buyerEmail: string;
+    buyerName: string | null;
+    reference: string;
+    currency: string;
+    subtotal: number;
+    platformFee: number;
+    total: number;
+    items: OrderEmailItem[];
+    deliveryAddress?: Record<string, any> | null;
+    createdAt?: string | null;
+};
+
+export type BuyerOrderStage = "confirmed" | "processing" | "delivered";
+
+const palette = {
+    canvas: "#F7F4EC",
+    card: "#FFFFFF",
+    ink: "#101010",
+    muted: "#625F58",
+    line: "#D7D1C5",
+    blue: "#2F5BFF",
+    lime: "#B7FF32",
+    softBlue: "#EAF0FF",
+    softLime: "#EEFFD0",
+};
+
+const escapeHtml = (value: unknown): string => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const formatMoney = (amount: number, currency = "NGN"): string => {
+    const normalizedCurrency = String(currency || "NGN").toUpperCase();
+    return new Intl.NumberFormat("en-NG", {
+        style: "currency",
+        currency: normalizedCurrency,
+        minimumFractionDigits: normalizedCurrency === "USD" ? 2 : 0,
+        maximumFractionDigits: normalizedCurrency === "USD" ? 2 : 0,
+    }).format(Number(amount) || 0);
+};
+
+const formatAddress = (address?: Record<string, any> | null): string => {
+    if (!address) return "";
+    const preferred = [address.address, address.line1, address.line2, address.city, address.state, address.country]
+        .filter(Boolean)
+        .map((value) => String(value).trim());
+    if (preferred.length) return preferred.join(", ");
+    return Object.values(address).filter((value) => typeof value === "string" || typeof value === "number").join(", ");
+};
+
+const button = (label: string, href: string): string => `
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:28px 0 8px">
+  <tr><td align="left">
+    <a href="${escapeHtml(href)}" style="display:inline-block;background:${palette.blue};border:1px solid ${palette.ink};border-radius:12px;color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;line-height:20px;padding:14px 22px;text-decoration:none;box-shadow:3px 3px 0 ${palette.ink}">${escapeHtml(label)}</a>
+  </td></tr>
+</table>`;
+
+const emailLayout = ({
+    preheader,
+    eyebrow,
+    title,
+    content,
+    accent = palette.lime,
+}: {
+    preheader: string;
+    eyebrow: string;
+    title: string;
+    content: string;
+    accent?: string;
+}): string => `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>${escapeHtml(title)}</title>
+  <style>@media only screen and (max-width:620px){.email-wrap{padding:16px!important}.email-card{border-radius:18px!important}.email-pad{padding:26px 20px!important}.email-title{font-size:31px!important;line-height:34px!important}.receipt-pad{padding:18px!important}}</style>
+</head>
+<body style="margin:0;padding:0;background:${palette.canvas};color:${palette.ink};font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:${palette.canvas}">
+    <tr><td class="email-wrap" align="center" style="padding:36px 16px">
+      <table class="email-card" role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;max-width:620px;background:${palette.card};border:1px solid ${palette.ink};border-radius:24px;box-shadow:7px 7px 0 ${palette.ink};overflow:hidden">
+        <tr><td style="background:${accent};border-bottom:1px solid ${palette.ink};padding:18px 28px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+            <td><span style="display:inline-block;background:${palette.ink};border-radius:9px;color:#FFFFFF;font-size:16px;font-weight:900;letter-spacing:-.3px;padding:8px 10px">L</span><span style="font-size:19px;font-weight:900;letter-spacing:-.7px;margin-left:9px;vertical-align:middle">LinkVerse</span></td>
+            <td align="right"><span style="font-size:10px;font-weight:900;letter-spacing:1.6px;text-transform:uppercase">${escapeHtml(eyebrow)}</span></td>
+          </tr></table>
+        </td></tr>
+        <tr><td class="email-pad" style="padding:38px 36px 34px">
+          <h1 class="email-title" style="font-family:Arial Black,Arial,Helvetica,sans-serif;font-size:38px;line-height:41px;letter-spacing:-1.8px;margin:0 0 20px">${escapeHtml(title)}</h1>
+          ${content}
+        </td></tr>
+        <tr><td style="border-top:1px solid ${palette.line};padding:20px 28px">
+          <p style="color:${palette.muted};font-size:12px;line-height:18px;margin:0">LinkVerse · Your whole creator world, one link.</p>
+          <p style="color:${palette.muted};font-size:11px;line-height:18px;margin:5px 0 0">© ${new Date().getFullYear()} LinkVerse</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+const paragraph = (copy: string): string => `<p style="color:${palette.muted};font-size:16px;line-height:25px;margin:0 0 18px">${copy}</p>`;
+
+const receiptBlock = (receipt: OrderReceiptEmailData): string => {
+    const items = receipt.items.length ? receipt.items : [{ title: "Order", quantity: 1, unitPrice: receipt.subtotal, lineTotal: receipt.subtotal }];
+    const itemRows = items.map((item) => `
+      <tr>
+        <td style="border-bottom:1px solid ${palette.line};padding:13px 0">
+          <div style="font-size:14px;font-weight:800;line-height:20px">${escapeHtml(item.title)}</div>
+          <div style="color:${palette.muted};font-size:12px;line-height:18px">${escapeHtml(item.quantity)} × ${escapeHtml(formatMoney(item.unitPrice, receipt.currency))}</div>
+        </td>
+        <td align="right" style="border-bottom:1px solid ${palette.line};font-size:14px;font-weight:800;padding:13px 0 13px 12px;white-space:nowrap">${escapeHtml(formatMoney(item.lineTotal, receipt.currency))}</td>
+      </tr>`).join("");
+    const address = formatAddress(receipt.deliveryAddress);
+    const date = receipt.createdAt ? new Date(receipt.createdAt).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" }) : "";
+
+    return `
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;background:${palette.canvas};border:1px solid ${palette.ink};border-radius:18px;margin:26px 0;overflow:hidden">
+  <tr><td class="receipt-pad" style="padding:22px 24px">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+      <tr><td colspan="2" style="padding:0 0 13px"><span style="font-size:11px;font-weight:900;letter-spacing:1.4px;text-transform:uppercase">Order receipt</span></td></tr>
+      ${itemRows}
+      <tr><td style="color:${palette.muted};font-size:13px;padding:14px 0 5px">Subtotal</td><td align="right" style="font-size:13px;padding:14px 0 5px">${escapeHtml(formatMoney(receipt.subtotal, receipt.currency))}</td></tr>
+      <tr><td style="color:${palette.muted};font-size:13px;padding:5px 0">Platform fee</td><td align="right" style="font-size:13px;padding:5px 0">${escapeHtml(formatMoney(receipt.platformFee, receipt.currency))}</td></tr>
+      <tr><td style="border-top:1px solid ${palette.ink};font-size:16px;font-weight:900;padding:14px 0 0">Total paid</td><td align="right" style="border-top:1px solid ${palette.ink};font-size:18px;font-weight:900;padding:14px 0 0">${escapeHtml(formatMoney(receipt.total, receipt.currency))}</td></tr>
+    </table>
+  </td></tr>
+  <tr><td style="background:#FFFFFF;border-top:1px solid ${palette.line};padding:17px 24px">
+    <p style="color:${palette.muted};font-size:11px;font-weight:800;letter-spacing:1px;margin:0 0 5px;text-transform:uppercase">Reference</p>
+    <p style="font-family:Courier New,monospace;font-size:12px;font-weight:700;line-height:18px;margin:0;overflow-wrap:anywhere">${escapeHtml(receipt.reference)}</p>
+    ${date ? `<p style="color:${palette.muted};font-size:12px;line-height:18px;margin:9px 0 0">${escapeHtml(date)}</p>` : ""}
+    ${address ? `<p style="color:${palette.muted};font-size:12px;line-height:18px;margin:9px 0 0"><strong style="color:${palette.ink}">Delivery:</strong> ${escapeHtml(address)}</p>` : ""}
+  </td></tr>
+</table>`;
+};
+
+export class MailService {
+    private static async sendEmail(to: string | string[], subject: string, html: string): Promise<boolean> {
+        try {
+            const { error } = await resend.emails.send({ from: FROM_EMAIL, to: Array.isArray(to) ? to : [to], subject, html });
             if (error) {
                 console.error("Failed to send email:", error);
                 return false;
             }
-
             return true;
         } catch (error) {
             console.error("Error sending email:", error);
@@ -30,117 +167,24 @@ export class MailService {
     }
 
     static async sendVerificationEmail(email: string, verificationLink: string): Promise<boolean> {
-        const subject = "Verify Your CreatorLink Account";
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 20px 40px;">
-                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">Verify Your Email</h2>
-                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
-                                Welcome to CreatorLink! Please verify your email address to complete your registration and start sharing your links with the world.
-                            </p>
-                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td align="center" style="padding: 20px 0;">
-                                        <a href="${verificationLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">Verify Email</a>
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
-                                If you didn't create an account with CreatorLink, you can safely ignore this email.
-                            </p>
-                            <p style="margin: 16px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
-                                This link will expire in 10 minutes.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
-                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
-                                &copy; 2026 CreatorLink. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-        return this.sendEmail(email, subject, html);
+        const html = emailLayout({
+            preheader: "Verify your email and finish setting up your LinkVerse.",
+            eyebrow: "One tiny step",
+            title: "Make it officially yours.",
+            content: `${paragraph("Welcome to LinkVerse. Verify your email and you’ll be ready to shape your page, share your work and start building your corner of the internet.")}${button("Verify my email", verificationLink)}${paragraph("This link expires in 10 minutes. If you didn’t create this account, you can ignore this email.")}`,
+        });
+        return this.sendEmail(email, "Verify your LinkVerse email", html);
     }
 
     static async sendForgotPasswordEmail(email: string, resetLink: string): Promise<boolean> {
-        const subject = "Reset Your CreatorLink Password";
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 20px 40px;">
-                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">Reset Your Password</h2>
-                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
-                                We received a request to reset your password. Click the button below to create a new password.
-                            </p>
-                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td align="center" style="padding: 20px 0;">
-                                        <a href="${resetLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">Reset Password</a>
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
-                                If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.
-                            </p>
-                            <p style="margin: 16px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
-                                This link will expire in 10 minutes.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
-                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
-                                &copy; 2026 CreatorLink. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-        return this.sendEmail(email, subject, html);
+        const html = emailLayout({
+            preheader: "Use this secure link to choose a new LinkVerse password.",
+            eyebrow: "Password reset",
+            title: "Let’s get you back in.",
+            accent: palette.softBlue,
+            content: `${paragraph("Someone asked to reset the password for this LinkVerse account. If that was you, choose a fresh password below.")}${button("Choose a new password", resetLink)}${paragraph("This link expires in 10 minutes. If you didn’t ask for it, nothing changes and you can safely ignore this email.")}`,
+        });
+        return this.sendEmail(email, "Reset your LinkVerse password", html);
     }
 
     static async sendTipNotificationEmail(
@@ -148,240 +192,114 @@ export class MailService {
         creatorName: string,
         amount: number,
         senderName: string,
-        message?: string
+        message?: string,
+        currency = "NGN"
     ): Promise<boolean> {
-        const subject = `You received a ₦${amount.toLocaleString()} tip on CreatorLink!`;
-        const dashboardLink = `${FRONTEND_URL}/dashboard`;
-
-        const messageSection = message ? `
-                                            <tr>
-                                                <td colspan="2" style="padding: 16px 0 0; border-top: 1px solid #e4e4e7;">
-                                                    <span style="font-size: 14px; color: #71717a;">Message</span>
-                                                    <p style="margin: 8px 0 0; font-size: 16px; color: #18181b; font-style: italic;">"${message}"</p>
-                                                </td>
-                                            </tr>` : '';
-
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 20px 40px;">
-                            <div style="text-align: center; margin-bottom: 24px;">
-                                <span style="display: inline-block; font-size: 48px;">🎉</span>
-                            </div>
-                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b; text-align: center;">You received a tip!</h2>
-                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b; text-align: center;">
-                                Hey ${creatorName}, great news! Someone just sent you a tip.
-                            </p>
-                            <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f4f4f5; border-radius: 8px; margin-bottom: 24px;">
-                                <tr>
-                                    <td style="padding: 24px;">
-                                        <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                            <tr>
-                                                <td style="padding: 8px 0;">
-                                                    <span style="font-size: 14px; color: #71717a;">Amount</span>
-                                                </td>
-                                                <td style="padding: 8px 0; text-align: right;">
-                                                    <span style="font-size: 24px; font-weight: 700; color: #16a34a;">₦${amount.toLocaleString()}</span>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="padding: 8px 0; border-top: 1px solid #e4e4e7;">
-                                                    <span style="font-size: 14px; color: #71717a;">From</span>
-                                                </td>
-                                                <td style="padding: 8px 0; text-align: right; border-top: 1px solid #e4e4e7;">
-                                                    <span style="font-size: 16px; font-weight: 600; color: #18181b;">${senderName}</span>
-                                                </td>
-                                            </tr>
-                                            ${messageSection}
-                                        </table>
-                                    </td>
-                                </tr>
-                            </table>
-                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td align="center" style="padding: 10px 0;">
-                                        <a href="${dashboardLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">View Dashboard</a>
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #71717a; text-align: center;">
-                                Keep creating amazing content! Your supporters appreciate you.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
-                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
-                                &copy; 2026 CreatorLink. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-        return this.sendEmail(creatorEmail, subject, html);
+        const money = formatMoney(amount, currency);
+        const messageCard = message ? `<div style="background:${palette.softBlue};border:1px solid ${palette.ink};border-radius:14px;margin:20px 0;padding:18px"><p style="color:${palette.muted};font-size:11px;font-weight:900;letter-spacing:1.2px;margin:0 0 8px;text-transform:uppercase">A note from ${escapeHtml(senderName)}</p><p style="font-size:15px;font-style:italic;line-height:23px;margin:0">“${escapeHtml(message)}”</p></div>` : "";
+        const html = emailLayout({
+            preheader: `${senderName} sent you ${money}.`,
+            eyebrow: "New support",
+            title: `${money} just landed.`,
+            content: `${paragraph(`Hey ${escapeHtml(creatorName)}, ${escapeHtml(senderName)} just supported what you make. That deserves a tiny happy dance.`)}${messageCard}${button("See my wallet", `${FRONTEND_URL}/dashboard/wallet`)}${paragraph("Keep going. Someone out there is paying attention.")}`,
+        });
+        return this.sendEmail(creatorEmail, `${money} from ${senderName} on LinkVerse`, html);
     }
 
-    static async sendOrderConfirmationEmail(
-        buyerEmail: string,
-        buyerName: string | null,
-        productTitle: string,
-        amount: number,
-        reference: string
-    ): Promise<boolean> {
-        const subject = `Your order for ${productTitle} is confirmed`;
-        const orderLink = `${FRONTEND_URL}/order?reference=${reference}`;
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 20px 40px;">
-                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">Order Confirmed</h2>
-                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
-                                ${buyerName ? `Hi ${buyerName},` : "Hi there,"} your order for <strong>${productTitle}</strong> has been confirmed.
-                            </p>
-                            <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #52525b;">
-                                Amount: ₦${amount.toLocaleString()}<br/>
-                                Reference: ${reference}
-                            </p>
-                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td align="center" style="padding: 20px 0;">
-                                        <a href="${orderLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">View Order</a>
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #71717a;">
-                                Keep this email for your records. You can access your order anytime using the link above.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
-                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
-                                &copy; 2026 CreatorLink. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-        return this.sendEmail(buyerEmail, subject, html);
+    static async sendOrderConfirmationEmail(receipt: OrderReceiptEmailData): Promise<boolean> {
+        const firstName = receipt.buyerName?.trim() || "there";
+        const html = emailLayout({
+            preheader: `Payment received for order ${receipt.reference}.`,
+            eyebrow: "Payment received",
+            title: "Your order is in.",
+            content: `${paragraph(`Hi ${escapeHtml(firstName)}, payment went through and the creator now has your order. Here’s the exact receipt for your records.`)}${receiptBlock(receipt)}${button("View order", `${FRONTEND_URL}/order?reference=${encodeURIComponent(receipt.reference)}`)}${paragraph("We’ll email you as the creator confirms and fulfils your order.")}`,
+        });
+        return this.sendEmail(receipt.buyerEmail, `Payment received · ${receipt.reference}`, html);
     }
 
     static async sendCreatorOrderEmail(
         creatorEmail: string,
         creatorName: string,
-        productTitle: string,
-        amount: number,
-        buyerEmail: string,
-        buyerName: string | null,
-        reference: string,
-        details?: {
-            deliveryAddress?: Record<string, any> | null;
-            bookingSlot?: { start: string; end: string } | null;
-        }
+        receipt: OrderReceiptEmailData,
+        bookingSlot?: { start: string; end: string } | null
     ): Promise<boolean> {
-        const subject = `New order received: ${productTitle}`;
-        const orderLink = `${FRONTEND_URL}/order?reference=${reference}`;
-        const deliveryLine = details?.deliveryAddress
-            ? `<p style="margin: 8px 0; font-size: 14px; color: #52525b;">Delivery address: ${JSON.stringify(details.deliveryAddress)}</p>`
-            : '';
-        const bookingLine = details?.bookingSlot
-            ? `<p style="margin: 8px 0; font-size: 14px; color: #52525b;">Booking slot: ${details.bookingSlot.start} - ${details.bookingSlot.end}</p>`
-            : '';
+        const booking = bookingSlot ? `<div style="background:${palette.softLime};border:1px solid ${palette.ink};border-radius:14px;margin:20px 0;padding:18px"><p style="font-size:11px;font-weight:900;letter-spacing:1.2px;margin:0 0 7px;text-transform:uppercase">Booking time</p><p style="font-size:14px;font-weight:800;line-height:22px;margin:0">${escapeHtml(bookingSlot.start)} — ${escapeHtml(bookingSlot.end)}</p></div>` : "";
+        const html = emailLayout({
+            preheader: `${receipt.buyerName || "A customer"} placed a new order.`,
+            eyebrow: "New sale",
+            title: "You made a sale.",
+            content: `${paragraph(`Hey ${escapeHtml(creatorName)}, ${escapeHtml(receipt.buyerName || "a customer")} placed an order. Review the details, then confirm it when you’re ready to fulfil.`)}${receiptBlock(receipt)}${booking}${button("Open orders", `${FRONTEND_URL}/dashboard/store`)}${paragraph(`Buyer contact: ${escapeHtml(receipt.buyerEmail)}`)}`,
+        });
+        return this.sendEmail(creatorEmail, `New order · ${receipt.reference}`, html);
+    }
 
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse;">
-        <tr>
-            <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                    <tr>
-                        <td style="padding: 40px 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 28px; color: #18181b; font-weight: 700;">CreatorLink</h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 20px 40px;">
-                            <h2 style="margin: 0 0 16px; font-size: 22px; color: #18181b;">New Order</h2>
-                            <p style="margin: 0 0 12px; font-size: 16px; line-height: 1.6; color: #52525b;">
-                                Hey ${creatorName}, you received a new order for <strong>${productTitle}</strong>.
-                            </p>
-                            <p style="margin: 0 0 12px; font-size: 14px; color: #52525b;">
-                                Buyer: ${buyerName || 'Customer'} (${buyerEmail})
-                            </p>
-                            <p style="margin: 0 0 12px; font-size: 14px; color: #52525b;">
-                                Amount: ₦${amount.toLocaleString()}
-                            </p>
-                            ${deliveryLine}
-                            ${bookingLine}
-                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td align="center" style="padding: 20px 0;">
-                                        <a href="${orderLink}" style="display: inline-block; padding: 14px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; border-radius: 8px;">View Order</a>
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #fafafa; border-radius: 0 0 12px 12px;">
-                            <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
-                                &copy; 2026 CreatorLink. All rights reserved.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
+    static async sendOrderStatusEmail(receipt: OrderReceiptEmailData, stage: BuyerOrderStage): Promise<boolean> {
+        const copy: Record<BuyerOrderStage, { eyebrow: string; title: string; message: string; subject: string; accent: string }> = {
+            confirmed: {
+                eyebrow: "Order confirmed",
+                title: "The creator said yes.",
+                message: "Your order has been reviewed and confirmed. It’s now lined up for fulfilment.",
+                subject: `Order confirmed · ${receipt.reference}`,
+                accent: palette.lime,
+            },
+            processing: {
+                eyebrow: "In progress",
+                title: "Your order is being prepared.",
+                message: "The creator is now working on your order. We’ll let you know when it reaches the final stage.",
+                subject: `Order in progress · ${receipt.reference}`,
+                accent: palette.softBlue,
+            },
+            delivered: {
+                eyebrow: "Delivered",
+                title: "It made it to you.",
+                message: "Your order has been marked as delivered. Keep this receipt handy in case you need to reference the order later.",
+                subject: `Order delivered · ${receipt.reference}`,
+                accent: palette.lime,
+            },
+        };
+        const stageCopy = copy[stage];
+        const html = emailLayout({
+            preheader: stageCopy.message,
+            eyebrow: stageCopy.eyebrow,
+            title: stageCopy.title,
+            accent: stageCopy.accent,
+            content: `${paragraph(`Hi ${escapeHtml(receipt.buyerName?.trim() || "there")}, ${stageCopy.message}`)}${receiptBlock(receipt)}${button("View order", `${FRONTEND_URL}/order?reference=${encodeURIComponent(receipt.reference)}`)}`,
+        });
+        return this.sendEmail(receipt.buyerEmail, stageCopy.subject, html);
+    }
 
-        return this.sendEmail(creatorEmail, subject, html);
+    static previewGallery(): string {
+        const receipt: OrderReceiptEmailData = {
+            buyerEmail: "amara@example.com",
+            buyerName: "Amara Okafor",
+            reference: "store_demo_20260809_001",
+            currency: "USD",
+            subtotal: 42,
+            platformFee: 1.05,
+            total: 43.05,
+            items: [
+                { title: "The soft life guide", quantity: 1, unitPrice: 25, lineTotal: 25 },
+                { title: "LinkVerse creator tee", quantity: 1, unitPrice: 17, lineTotal: 17 },
+            ],
+            deliveryAddress: { address: "14 Palm Street", city: "Lagos", country: "Nigeria" },
+            createdAt: new Date().toISOString(),
+        };
+        const templates = [
+            ["Verify email", emailLayout({ preheader: "Verify your email and finish setting up your LinkVerse.", eyebrow: "One tiny step", title: "Make it officially yours.", content: `${paragraph("Welcome to LinkVerse. Verify your email and you’ll be ready to shape your page, share your work and start building your corner of the internet.")}${button("Verify my email", "https://example.com/verify/demo")}${paragraph("This link expires in 10 minutes. If you didn’t create this account, you can ignore this email.")}` })],
+            ["Reset password", emailLayout({ preheader: "Use this secure link to choose a new LinkVerse password.", eyebrow: "Password reset", title: "Let’s get you back in.", accent: palette.softBlue, content: `${paragraph("Someone asked to reset the password for this LinkVerse account. If that was you, choose a fresh password below.")}${button("Choose a new password", "https://example.com/reset/demo")}${paragraph("This link expires in 10 minutes. If you didn’t ask for it, nothing changes and you can safely ignore this email.")}` })],
+            ["Support received", emailLayout({ preheader: "Ola sent you $5.00.", eyebrow: "New support", title: "$5.00 just landed.", content: `${paragraph("Hey Ola, Amara just supported what you make. That deserves a tiny happy dance.")}${`<div style="background:${palette.softBlue};border:1px solid ${palette.ink};border-radius:14px;margin:20px 0;padding:18px"><p style="color:${palette.muted};font-size:11px;font-weight:900;letter-spacing:1.2px;margin:0 0 8px;text-transform:uppercase">A note from Amara</p><p style="font-size:15px;font-style:italic;line-height:23px;margin:0">“Keep making the good stuff.”</p></div>`}${button("See my wallet", `${FRONTEND_URL}/dashboard/wallet`)}${paragraph("Keep going. Someone out there is paying attention.")}` })],
+            ["Buyer · payment received", emailLayout({ preheader: "Payment received for your order.", eyebrow: "Payment received", title: "Your order is in.", content: `${paragraph("Hi Amara, payment went through and the creator now has your order. Here’s the exact receipt for your records.")}${receiptBlock(receipt)}${button("View order", `${FRONTEND_URL}/order?reference=${receipt.reference}`)}${paragraph("We’ll email you as the creator confirms and fulfils your order.")}` })],
+            ["Creator · new sale", emailLayout({ preheader: "A customer placed a new order.", eyebrow: "New sale", title: "You made a sale.", content: `${paragraph("Hey Ola, Amara placed an order. Review the details, then confirm it when you’re ready to fulfil.")}${receiptBlock(receipt)}${button("Open orders", `${FRONTEND_URL}/dashboard/store`)}${paragraph(`Buyer contact: ${receipt.buyerEmail}`)}` })],
+            ...(["confirmed", "processing", "delivered"] as const).map((stage) => {
+                const copy = {
+                    confirmed: { eyebrow: "Order confirmed", title: "The creator said yes.", message: "Your order has been reviewed and confirmed. It’s now lined up for fulfilment.", accent: palette.lime },
+                    processing: { eyebrow: "In progress", title: "Your order is being prepared.", message: "The creator is now working on your order. We’ll let you know when it reaches the final stage.", accent: palette.softBlue },
+                    delivered: { eyebrow: "Delivered", title: "It made it to you.", message: "Your order has been marked as delivered. Keep this receipt handy in case you need to reference the order later.", accent: palette.lime },
+                }[stage];
+                return [`Buyer · ${stage}`, emailLayout({ preheader: copy.message, eyebrow: copy.eyebrow, title: copy.title, accent: copy.accent, content: `${paragraph(`Hi Amara, ${copy.message}`)}${receiptBlock(receipt)}${button("View order", `${FRONTEND_URL}/order?reference=${receipt.reference}`)}` })];
+            }),
+        ];
+        const cards = templates.map(([label, html]) => `<section><h2>${escapeHtml(label)}</h2><iframe title="${escapeHtml(label)}" srcdoc="${escapeHtml(html)}"></iframe></section>`).join("");
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LinkVerse email previews</title><style>body{margin:0;background:#e9e4d9;color:#101010;font-family:Arial,Helvetica,sans-serif}header{padding:32px max(20px,calc((100% - 1320px)/2));background:#b7ff32;border-bottom:1px solid #101010}header h1{font:900 36px/1 Arial Black,Arial;margin:0;letter-spacing:-1.8px}header p{margin:9px 0 0;color:#625f58;font-weight:700}main{max-width:1320px;margin:0 auto;padding:26px 20px 60px;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:26px}section{background:#fff;border:1px solid #101010;border-radius:20px;box-shadow:6px 6px 0 #101010;overflow:hidden}h2{font-size:15px;margin:0;padding:16px 18px;border-bottom:1px solid #d7d1c5}iframe{display:block;width:100%;height:790px;border:0;background:#f7f4ec}@media(max-width:520px){main{display:block;padding:16px 12px 36px}section{margin-bottom:22px}iframe{height:760px}}</style></head><body><header><h1>LinkVerse email previews</h1><p>Live-rendered from the same templates used by Resend. Nothing was sent.</p></header><main>${cards}</main></body></html>`;
     }
 }

@@ -64,16 +64,14 @@ export class AuthService {
         try {
             const normalizedEmail = this.normalizeEmail(email);
             const user = await userRepo.findByEmail(normalizedEmail)
-            if (!user) {
-                return NotFound(`User with email ${normalizedEmail} not found`);
-            }
+            if (!user) return Ok(null, "If an account exists for that email, a reset link has been sent");
             const resetToken = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "10m" });
             const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}`
 
             // Send forgot password email
             MailService.sendForgotPasswordEmail(normalizedEmail, resetLink);
 
-            return Ok(null, `Password reset link has been sent to ${normalizedEmail}`)
+            return Ok(null, "If an account exists for that email, a reset link has been sent")
         } catch (err: any) {
             return InternalError(err.message)
         }
@@ -111,11 +109,12 @@ export class AuthService {
             return Forbidden("Please verify account")
         }
         const creator = await CreatorRepository.getOneWhere({ user_id: user.id }, { user: true })
-        if (!creator) {
-            return Forbidden("You are yet to set up creator username")
-        }
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: "6h" })
-        return Ok({ creator, token: token }, "Login Successful")
+        return Ok({
+            creator: creator || null,
+            token,
+            user: { id: user.id, email: user.email, verified: user.verified }
+        }, creator ? "Login Successful" : "Continue creator profile setup")
     }
 
     static async resendVerificationLink(email: string) {
@@ -144,16 +143,14 @@ export class AuthService {
         try {
             const normalizedEmail = this.normalizeEmail(email);
             const user = await userRepo.findByEmail(normalizedEmail)
-            if (!user) {
-                return NotFound(`User with email ${normalizedEmail} not found`);
-            }
+            if (!user) return Ok(null, "If an account exists for that email, a reset link has been sent");
             const resetToken = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "10m" });
             const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}`
 
             // Send forgot password email
             MailService.sendForgotPasswordEmail(normalizedEmail, resetLink);
 
-            return Ok(null, `Password reset link has been sent to ${normalizedEmail}`)
+            return Ok(null, "If an account exists for that email, a reset link has been sent")
         } catch (err: any) {
             return InternalError(err.message)
         }

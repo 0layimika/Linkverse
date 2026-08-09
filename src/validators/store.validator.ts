@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const storeCurrencySchema = z.object({ body: z.object({ currency: z.enum(["NGN", "USD"]) }) });
+export type storeCurrencySchema = z.infer<typeof storeCurrencySchema>;
+
 const productTypeEnum = z.enum(["digital", "physical", "service"]);
 const timeString = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format (HH:MM)");
 
@@ -8,8 +11,9 @@ export const createProductSchema = z.object({
         type: productTypeEnum,
         title: z.string({ message: "Title is required" }).min(1, "Title cannot be empty"),
         description: z.string().optional().nullable(),
-        price: z.number({ message: "Price is required" }).min(100, "Minimum price is 100"),
-        currency: z.string().optional(),
+        price: z.coerce.number({ message: "Price is required" }).positive(),
+        compare_at_price: z.coerce.number().positive().optional().nullable(),
+        currency: z.enum(["NGN", "USD"]).optional(),
         cover_url: z.string().url("Invalid cover URL").optional().nullable(),
         is_active: z.boolean().optional(),
         download_limit: z.number().int().min(1).optional(),
@@ -22,7 +26,10 @@ export const createProductSchema = z.object({
         timezone: z.string().optional().nullable(),
         requires_address: z.boolean().optional(),
         track_inventory: z.boolean().optional(),
-        stock_quantity: z.number().int().min(0).optional().nullable(),
+        stock_quantity: z.coerce.number().int().min(0).optional().nullable(),
+    }).superRefine((body, ctx) => {
+        const minimum = body.currency === "USD" ? 1 : 1000;
+        if (body.price < minimum) ctx.addIssue({ code: z.ZodIssueCode.too_small, minimum, inclusive: true, origin: "number", path: ["price"], message: `Minimum price is ${body.currency === "USD" ? "$1" : "₦1,000"}` });
     }),
 });
 
@@ -35,8 +42,9 @@ export const updateProductSchema = z.object({
     body: z.object({
         title: z.string().min(1, "Title cannot be empty").optional(),
         description: z.string().optional().nullable(),
-        price: z.number().min(100).optional(),
-        currency: z.string().optional(),
+        price: z.coerce.number().positive().optional(),
+        compare_at_price: z.coerce.number().positive().optional().nullable(),
+        currency: z.enum(["NGN", "USD"]).optional(),
         cover_url: z.string().url("Invalid cover URL").optional().nullable(),
         is_active: z.boolean().optional(),
         download_limit: z.number().int().min(1).optional(),
@@ -49,7 +57,7 @@ export const updateProductSchema = z.object({
         timezone: z.string().optional().nullable(),
         requires_address: z.boolean().optional(),
         track_inventory: z.boolean().optional(),
-        stock_quantity: z.number().int().min(0).optional().nullable(),
+        stock_quantity: z.coerce.number().int().min(0).optional().nullable(),
     }),
 });
 
@@ -249,7 +257,7 @@ export const updateOrderStatusSchema = z.object({
         id: z.string({ message: "Order ID is required" }),
     }),
     body: z.object({
-        status: z.enum(["cancelled", "refunded"]),
+        status: z.enum(["confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]),
     }),
 });
 

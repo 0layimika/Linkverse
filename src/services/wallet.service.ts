@@ -5,11 +5,11 @@ import { InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
 import knex from "../db/knex";
 
 export class WalletService {
-    static async getOrCreateWallet(creatorId: number) {
+    static async getOrCreateWallet(creatorId: number, currency: 'NGN' | 'USD' = 'NGN') {
         try {
-            let wallet = await WalletRepository.getByCreatorId(creatorId);
+            let wallet = await WalletRepository.getByCreatorId(creatorId, currency);
             if (!wallet) {
-                wallet = await WalletRepository.createForCreator(creatorId);
+                wallet = await WalletRepository.createForCreator(creatorId, currency);
             }
             return wallet;
         } catch (err: any) {
@@ -24,8 +24,11 @@ export class WalletService {
                 return NotFound("Creator profile not found");
             }
 
-            const wallet = await this.getOrCreateWallet(creator.id);
-            return Ok(wallet, "Wallet retrieved successfully");
+            const wallets = await Promise.all([
+                this.getOrCreateWallet(creator.id, 'NGN'),
+                this.getOrCreateWallet(creator.id, 'USD'),
+            ]);
+            return Ok({ wallet: wallets[0], wallets }, "Wallets retrieved successfully");
         } catch (err: any) {
             return InternalError(err.message);
         }
@@ -38,8 +41,11 @@ export class WalletService {
                 return NotFound("Creator profile not found");
             }
 
-            const wallet = await this.getOrCreateWallet(creator.id);
-            return Ok({ balance: wallet.balance, currency: wallet.currency }, "Balance retrieved successfully");
+            const wallets = await Promise.all([
+                this.getOrCreateWallet(creator.id, 'NGN'),
+                this.getOrCreateWallet(creator.id, 'USD'),
+            ]);
+            return Ok({ balance: wallets[0].balance, currency: wallets[0].currency, wallets }, "Balances retrieved successfully");
         } catch (err: any) {
             return InternalError(err.message);
         }
@@ -77,7 +83,11 @@ export class WalletService {
     static async creditWallet(walletId: number, amount: number, transactionId: number) {
         const trx = await knex.transaction();
         try {
-            const wallet = await WalletRepository.creditWallet(walletId, amount, trx);
+            const wallet = await WalletRepository.creditWallet(walletId, amount, trx, {
+                transactionId,
+                entryType: "wallet_credit",
+                reference: `transaction:${transactionId}:credit`,
+            });
             await TransactionRepository.updateStatus(transactionId, 'completed', undefined, trx);
             await trx.commit();
             return wallet;

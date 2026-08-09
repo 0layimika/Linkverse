@@ -10,6 +10,8 @@ export class LinkModel extends Model {
     url!: string;
     icon!: string | null;
     thumbnail_url!: string | null;
+    display_type!: "standard" | "featured";
+    description!: string | null;
     position!: number;
     is_active!: boolean;
     created_at!: string;
@@ -25,6 +27,8 @@ export class LinkModel extends Model {
                 title: { type: "string", minLength: 1, maxLength: 100 },
                 url: { type: "string", minLength: 1 },
                 icon: { type: ["string", "null"] },
+                display_type: { type: "string", enum: ["standard", "featured"] },
+                description: { type: ["string", "null"], maxLength: 240 },
                 position: { type: "integer" },
                 is_active: { type: "boolean" },
             },

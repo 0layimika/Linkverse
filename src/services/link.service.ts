@@ -7,6 +7,8 @@ export interface CreateLinkData {
     url: string;
     icon?: string;
     thumbnail_url?: string | null;
+    display_type?: "standard" | "featured";
+    description?: string | null;
 }
 
 export interface UpdateLinkData {
@@ -14,6 +16,8 @@ export interface UpdateLinkData {
     url?: string;
     icon?: string;
     thumbnail_url?: string | null;
+    display_type?: "standard" | "featured";
+    description?: string | null;
     position?: number;
 }
 
@@ -33,6 +37,8 @@ export class LinkService {
                 url: data.url,
                 icon: data.icon || null,
                 thumbnail_url: data.thumbnail_url ?? null,
+                display_type: data.display_type || "standard",
+                description: data.description ?? null,
                 position: maxPosition + 1,
                 is_active: true,
             } as Partial<Link>);

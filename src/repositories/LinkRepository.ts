@@ -8,6 +8,8 @@ export interface Link {
     url: string;
     icon: string | null;
     thumbnail_url: string | null;
+    display_type: "standard" | "featured";
+    description: string | null;
     position: number;
     is_active: boolean;
     created_at: string;

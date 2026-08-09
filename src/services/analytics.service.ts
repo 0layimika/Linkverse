@@ -4,6 +4,7 @@ import { DailyStatRepository } from "../repositories/DailyStatRepository";
 import { CreatorRepository } from "../repositories/CreatorRepository";
 import { LinkRepository } from "../repositories/LinkRepository";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
+import { ClickEventModel } from "../models/ClickEventModel";
 
 type Period = "today" | "this_week" | "this_month" | "all_time";
 
@@ -16,6 +17,9 @@ interface TrackingData {
     ip: string;
     userAgent?: string;
     referrer?: string;
+    source?: string;
+    medium?: string;
+    campaign?: string;
 }
 
 export class AnalyticsService {
@@ -79,7 +83,7 @@ export class AnalyticsService {
 
     static async trackProfileView(username: string, data: TrackingData) {
         try {
-            const creator = await CreatorRepository.getOneWhere({ username });
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) {
                 return NotFound("Creator not found");
             }
@@ -102,6 +106,9 @@ export class AnalyticsService {
                 ip_hash: ipHash,
                 user_agent: data.userAgent || null,
                 referrer: data.referrer || null,
+                source: data.source || null,
+                medium: data.medium || null,
+                campaign: data.campaign || null,
             } as Partial<ClickEvent>);
 
             await DailyStatRepository.upsertStat(
@@ -144,6 +151,9 @@ export class AnalyticsService {
                 ip_hash: ipHash,
                 user_agent: data.userAgent || null,
                 referrer: data.referrer || null,
+                source: data.source || null,
+                medium: data.medium || null,
+                campaign: data.campaign || null,
             } as Partial<ClickEvent>);
 
             await DailyStatRepository.upsertStat(
@@ -204,6 +214,19 @@ export class AnalyticsService {
                 dateRange.end
             );
 
+            const sourceEndExclusive = new Date(`${dateRange.end}T00:00:00.000Z`);
+            sourceEndExclusive.setUTCDate(sourceEndExclusive.getUTCDate() + 1);
+            const sourceRows = await ClickEventModel.query()
+                .select("source")
+                .count("id as visits")
+                .where("creator_id", creator.id)
+                .where("event_type", "profile_view")
+                .where("created_at", ">=", dateRange.start)
+                .where("created_at", "<", sourceEndExclusive.toISOString())
+                .groupBy("source")
+                .orderBy("visits", "desc")
+                .limit(8);
+
             return Ok({
                 period,
                 date_range: { start: dateRange.start, end: dateRange.end },
@@ -221,6 +244,7 @@ export class AnalyticsService {
                     ),
                 },
                 top_links: topLinks,
+                top_sources: sourceRows.map((row: any) => ({ source: row.source || "direct", visits: Number(row.visits || 0) })),
                 daily_breakdown: dailyBreakdown,
             }, "Analytics overview retrieved successfully");
         } catch (err: any) {

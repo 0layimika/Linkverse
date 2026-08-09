@@ -80,4 +80,17 @@ export class WalletController {
             return ExpressResponse(res, InternalError(err.message));
         }
     }
+
+    static async handleBachsWebhook(req: Request, res: Response) {
+        try {
+            const signature = req.headers['x-bachs-signature'] as string;
+            const timestamp = req.headers['x-bachs-timestamp'] as string;
+            const payload = (req as Request & { rawBody?: string }).rawBody || JSON.stringify(req.body);
+            console.log('[Bachs][webhook] received', { timestamp, hasSignature: Boolean(signature), rawBodyLength: payload.length, eventId: req.body?.id, eventType: req.body?.type });
+            const result = await GiftService.handleWebhook('bachs', payload, signature, req.body, timestamp);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
 }

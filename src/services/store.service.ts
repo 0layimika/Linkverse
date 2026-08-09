@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { CreatorRepository } from "../repositories/CreatorRepository";
+import { CreatorModel } from "../models/CreatorModel";
 import { StoreProductRepository } from "../repositories/StoreProductRepository";
 import { StoreOrderRepository } from "../repositories/StoreOrderRepository";
 import { StoreOrderItemRepository } from "../repositories/StoreOrderItemRepository";
@@ -10,7 +11,7 @@ import { getPaymentProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
 import { FRONTEND_URL } from "../config/env";
 import { StoreProductType } from "../types/store.types";
-import { MailService } from "./mail.service";
+import { MailService, OrderReceiptEmailData } from "./mail.service";
 import { getSignedDownloadUrl } from "./media.service";
 import { WalletService } from "./wallet.service";
 import { TransactionRepository } from "../repositories/TransactionRepository";
@@ -18,12 +19,14 @@ import { WalletRepository } from "../repositories/WalletRepository";
 import knex from "../db/knex";
 import { ServiceBookingModel } from "../models/ServiceBookingModel";
 import { StoreOrderModel } from "../models/StoreOrderModel";
+import { ProfileConfigRepository } from "../repositories/ProfileConfigRepository";
 
 interface CreateProductData {
     type: StoreProductType;
     title: string;
     description?: string | null;
     price: number;
+    compare_at_price?: number | null;
     currency?: string;
     cover_url?: string | null;
     is_active?: boolean;
@@ -92,6 +95,50 @@ interface BlockServiceSlotData {
 }
 
 export class StoreService {
+    private static buildOrderEmailReceipt(order: any, items: any[], fallbackTitle = "Order"): OrderReceiptEmailData {
+        const subtotal = Number(order.subtotal ?? order.amount ?? 0);
+        const platformFee = Number(order.platform_fee ?? (Number(order.platform_fee_minor || 0) / 100));
+        const total = Number(order.total ?? order.amount ?? (subtotal + platformFee));
+        return {
+            buyerEmail: order.buyer_email,
+            buyerName: order.buyer_name || null,
+            reference: order.reference,
+            currency: String(order.currency || "NGN").toUpperCase(),
+            subtotal,
+            platformFee,
+            total,
+            items: items.length > 0
+                ? items.map((item) => ({
+                    title: item.title_snapshot || fallbackTitle,
+                    quantity: Number(item.quantity || 1),
+                    unitPrice: Number(item.unit_price ?? item.line_total ?? 0),
+                    lineTotal: Number(item.line_total ?? 0),
+                }))
+                : [{ title: fallbackTitle, quantity: 1, unitPrice: subtotal, lineTotal: subtotal }],
+            deliveryAddress: order.delivery_address || null,
+            createdAt: order.created_at || null,
+        };
+    }
+
+    static async getStoreCurrency(userId: number) {
+        const creator = await CreatorRepository.getOneWhere({ user_id: userId });
+        if (!creator) return NotFound("Creator profile not found");
+        return Ok({ currency: creator.store_currency || "NGN" }, "Store currency retrieved successfully");
+    }
+
+    static async setStoreCurrency(userId: number, currency: 'NGN' | 'USD') {
+        try {
+            const creator = await CreatorRepository.getOneWhere({ user_id: userId });
+            if (!creator) return NotFound("Creator profile not found");
+            const products = await StoreProductRepository.getAllWhere({ creator_id: creator.id });
+            await CreatorModel.query().patch({ store_currency: currency }).where({ id: creator.id });
+            if (products.length) {
+                await knex("store_products").where({ creator_id: creator.id }).update({ currency, is_active: false, updated_at: knex.fn.now() });
+            }
+            return Ok({ currency }, "Store currency updated successfully");
+        } catch (err: any) { return InternalError(err.message); }
+    }
+    private static readonly ORDER_EXPIRY_MINUTES = 15;
     private static PLATFORM_FEE_RATE = 0.025;
     static generateReference(): string {
         return `store_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
@@ -120,6 +167,54 @@ export class StoreService {
             const value = address[key];
             return typeof value === "string" && value.trim().length >= 5;
         });
+    }
+
+    /** Return reserved inventory exactly once when an order cannot be paid. */
+    private static async releaseInventoryReservation(order: any): Promise<void> {
+        const metadata = (order.metadata || {}) as any;
+        if (metadata.inventory_released || !Array.isArray(metadata.inventory_reservations)) return;
+        await knex.transaction(async (trx) => {
+            const locked = await StoreOrderModel.query(trx).where({ id: order.id }).forUpdate().first();
+            if (!locked) return;
+            const current = (locked.metadata || {}) as any;
+            if (current.inventory_released || !Array.isArray(current.inventory_reservations)) return;
+            for (const reservation of current.inventory_reservations) {
+                await knex("store_products").where({ id: reservation.product_id }).increment("stock_quantity", Number(reservation.quantity || 0)).transacting(trx);
+            }
+            await StoreOrderModel.query(trx).patch({ metadata: { ...current, inventory_released: true } }).where({ id: locked.id });
+        });
+    }
+
+    private static async discardUnpaidOrder(order: any): Promise<void> {
+        await this.releaseInventoryReservation(order);
+        await knex.transaction(async (trx) => {
+            await trx("store_order_items").where({ order_id: order.id }).del();
+            await trx("store_orders").where({ id: order.id, status: "pending" }).del();
+        });
+    }
+
+    static async expirePendingOrders(): Promise<void> {
+        const candidates = await StoreOrderModel.query()
+            .where("status", "pending")
+            .whereNotNull("expires_at")
+            .where("expires_at", "<=", new Date().toISOString())
+            .select("id");
+        for (const candidate of candidates) {
+            await knex.transaction(async (trx) => {
+                const order = await StoreOrderModel.query(trx).where({ id: candidate.id, status: "pending" }).forUpdate().first();
+                if (!order) return;
+                const metadata = (order.metadata || {}) as any;
+                if (!metadata.inventory_released && Array.isArray(metadata.inventory_reservations)) {
+                    for (const reservation of metadata.inventory_reservations) {
+                        await trx("store_products").where({ id: reservation.product_id }).increment("stock_quantity", Number(reservation.quantity || 0));
+                    }
+                }
+                await StoreOrderModel.query(trx).patch({
+                    status: "expired",
+                    metadata: { ...metadata, inventory_released: true, expiry_reason: "checkout_timeout" },
+                }).where({ id: order.id });
+            });
+        }
     }
 
     private static parseTimeToMinutes(value: string): number | null {
@@ -237,15 +332,20 @@ export class StoreService {
                 }
             }
 
+            const storeCurrency = (creator.store_currency || data.currency || "NGN").toUpperCase() as 'NGN' | 'USD';
+            if (!['NGN', 'USD'].includes(storeCurrency)) return BadRequest("Store currency must be NGN or USD");
+            if (data.price < (storeCurrency === 'USD' ? 1 : 1000)) return BadRequest(`Minimum product price is ${storeCurrency === 'USD' ? '$1' : '₦1,000'}`);
+            if (creator.store_currency && data.currency && data.currency.toUpperCase() !== storeCurrency) return BadRequest(`All store products must use ${storeCurrency}`);
+            if (!creator.store_currency) await CreatorModel.query().patch({ store_currency: storeCurrency }).where({ id: creator.id });
+
             const product = await StoreProductRepository.create({
                 creator_id: creator.id,
                 type: data.type,
                 title: data.title,
                 description: data.description ?? null,
                 price: data.price,
-                // Backward compatibility: some deployed schemas still have a non-null `amount` column.
-                amount: data.price,
-                currency: data.currency || "NGN",
+                compare_at_price: data.compare_at_price ?? null,
+                currency: storeCurrency,
                 cover_url: data.cover_url ?? null,
                 is_active: data.is_active ?? true,
                 download_limit: data.download_limit ?? 3,
@@ -276,6 +376,9 @@ export class StoreService {
             if (!product) return NotFound("Product not found");
             if (product.creator_id !== creator.id) return BadRequest("You do not own this product");
             const nextType = data.type || product.type;
+            const nextCurrency = (creator.store_currency || product.currency || 'NGN') as 'NGN' | 'USD';
+            if (data.price !== undefined && data.price < (nextCurrency === 'USD' ? 1 : 1000)) return BadRequest(`Minimum product price is ${nextCurrency === 'USD' ? '$1' : '₦1,000'}`);
+            if (data.currency && data.currency.toUpperCase() !== (creator.store_currency || product.currency)) return BadRequest(`All store products must use ${creator.store_currency || product.currency}`);
             if (nextType === "physical" && (data.track_inventory ?? product.track_inventory ?? true)) {
                 const nextStock = data.stock_quantity ?? product.stock_quantity;
                 if (nextStock === null || nextStock === undefined) {
@@ -287,11 +390,6 @@ export class StoreService {
             }
 
             const payload: any = { ...data };
-            // Keep legacy `amount` column in sync where present.
-            if (typeof data.price === "number") {
-                payload.amount = data.price;
-            }
-
             const updated = await StoreProductRepository.update(productId, payload);
             return Ok(updated, "Product updated successfully");
         } catch (err: any) {
@@ -332,10 +430,16 @@ export class StoreService {
 
     static async getStorefront(username: string, limit = 50, offset = 0) {
         try {
-            const creator = await CreatorRepository.getOneWhere({ username });
+            await this.expirePendingOrders();
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
-            const products = await StoreProductRepository.getActiveByCreatorId(creator.id, limit, offset);
+            const [products, profileConfig] = await Promise.all([
+                StoreProductRepository.getActivePhysicalByCreatorId(creator.id, limit, offset),
+                ProfileConfigRepository.getByCreatorId(creator.id),
+            ]);
+            // Store is physical-product only in the new UI. Legacy digital/service
+            // records remain in the database and continue to work through old APIs.
             return Ok({
                 creator: {
                     id: creator.id,
@@ -344,8 +448,16 @@ export class StoreService {
                     last_name: creator.last_name,
                     bio: creator.bio,
                     avatar_url: creator.avatar_url,
+                    profile_config: profileConfig ? {
+                        background_type: profileConfig.background_type,
+                        background_value: profileConfig.background_value,
+                        text_color: profileConfig.text_color,
+                        accent_color: profileConfig.accent_color,
+                        card_style: profileConfig.card_style,
+                    } : null,
                 },
                 products,
+                platform_fee_rate: this.PLATFORM_FEE_RATE,
             }, "Storefront retrieved successfully");
         } catch (err: any) {
             return InternalError(err.message);
@@ -354,7 +466,8 @@ export class StoreService {
 
     static async initiatePurchase(username: string, productId: number, data: InitiatePurchaseData) {
         try {
-            const creator = await CreatorRepository.getOneWhere({ username });
+            await this.expirePendingOrders();
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const product = await StoreProductRepository.findVisibleById(productId);
@@ -442,7 +555,17 @@ export class StoreService {
                 holdToken = holdBooking.hold_token || null;
             }
 
-            const order = await StoreOrderRepository.create({
+            const order = await knex.transaction(async (trx) => {
+                const inventoryReservations: Array<{ product_id: number; quantity: number }> = [];
+                if (product.type === "physical" && product.track_inventory) {
+                    const reserved = await trx("store_products")
+                        .where({ id: product.id, is_active: true })
+                        .where("stock_quantity", ">=", 1)
+                        .decrement("stock_quantity", 1);
+                    if (!reserved) throw new Error("Product just sold out. Please try again.");
+                    inventoryReservations.push({ product_id: product.id, quantity: 1 });
+                }
+                return StoreOrderRepository.create({
                 creator_id: creator.id,
                 product_id: product.id,
                 buyer_email: data.buyer_email,
@@ -459,6 +582,7 @@ export class StoreService {
                 platform_fee_minor: platformFeeMinor,
                 currency: product.currency,
                 reference,
+                expires_at: new Date(Date.now() + StoreService.ORDER_EXPIRY_MINUTES * 60_000).toISOString(),
                 provider: provider.providerName,
                 metadata: {
                     product_type: product.type,
@@ -469,8 +593,11 @@ export class StoreService {
                     slot_start: selectedSlotStart,
                     slot_end: selectedSlotEnd,
                     service_duration_minutes: product.type === "service" ? (product.duration_minutes || 30) : null,
+                    inventory_reservations: inventoryReservations,
+                    inventory_released: false,
                 },
-            } as any);
+                } as any, {}, trx);
+            });
 
             const amountInKobo = amountMinor;
             const callbackUrl = `${FRONTEND_URL}/payment/store?reference=${reference}&type=${product.type}`;
@@ -487,10 +614,11 @@ export class StoreService {
                     product_type: product.type,
                 },
                 callback_url: callbackUrl,
+                currency: product.currency,
             });
 
             if (!paymentResult.success) {
-                await StoreOrderRepository.updateStatus(order.id, "failed");
+                await this.discardUnpaidOrder(order);
                 return BadRequest("Failed to initialize payment");
             }
 
@@ -504,24 +632,40 @@ export class StoreService {
         }
     }
 
-    static async verifyPurchase(reference: string) {
+    static async verifyPurchase(reference: string, webhook?: { status?: 'success' | 'failed' | 'pending'; provider_reference?: string; amount?: number; currency?: string }) {
         try {
+            await this.expirePendingOrders();
             await ServiceBookingRepository.expireHolds();
 
             const order = await StoreOrderRepository.getByReference(reference);
             if (!order) return NotFound("Order not found");
+            if (webhook?.currency && String(webhook.currency).toUpperCase() === String(order.currency).toUpperCase() && webhook.amount !== undefined && Math.abs(Number(webhook.amount) - Number(order.amount)) > 0.01) {
+                return BadRequest(`Webhook amount mismatch: expected ${order.amount} ${order.currency}, received ${webhook.amount} ${webhook.currency}`);
+            }
+            // Webhooks are the source of truth. Once our order is paid/failed,
+            // the redirect verifier must not call a provider again.
+            if (["paid", "confirmed", "processing", "shipped", "delivered"].includes(order.status as string)) {
+                const tokens = await StoreDownloadTokenRepository.getAllWhere({ order_id: order.id });
+                return Ok({ status: "paid", download_token: tokens[0]?.token, download_tokens: tokens }, "Order already paid");
+            }
+            if (["failed", "cancelled", "refunded", "expired"].includes(order.status)) {
+                return Ok({ status: order.status }, "Order is not payable");
+            }
             const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
             const primaryProduct = await StoreProductRepository.findVisibleById(order.product_id);
             const product = primaryProduct || (orderItems.length > 0 ? ({ title: "Cart order", type: "physical", duration_minutes: null, download_limit: 3 } as any) : null);
             if (!product) return NotFound("Product not found");
 
-            let verifyStatus: "success" | "failed" | "pending" = "success";
+            let verifyStatus: "success" | "failed" | "pending" = webhook?.status || "success";
             let providerReference = order.provider_reference || null;
-            if (order.status !== "paid") {
-                const provider = getPaymentProvider();
-                const verifyResult = await provider.verifyPayment(reference);
-                verifyStatus = verifyResult.status;
-                providerReference = verifyResult.provider_reference || providerReference;
+            if (webhook?.provider_reference) providerReference = webhook.provider_reference;
+            if ((order.status as string) !== "paid") {
+                if (!webhook) {
+                    const provider = getPaymentProvider();
+                    const verifyResult = await provider.verifyPayment(reference);
+                    verifyStatus = verifyResult.status;
+                    providerReference = verifyResult.provider_reference || providerReference;
+                }
 
                 if (verifyStatus === "pending") {
                     return Ok({ status: "pending" }, "Payment is still pending");
@@ -529,7 +673,6 @@ export class StoreService {
             }
 
             let bookingDetails: any = null;
-            let orderAmountMajor = Number(order.amount);
             let firstProcessed = false;
 
             await knex.transaction(async (trx) => {
@@ -537,12 +680,17 @@ export class StoreService {
                 if (!lockedOrder) throw new Error("Order not found");
 
                 const expectedAmountMinor = lockedOrder.amount_minor ?? this.toAmountMinor(Number(lockedOrder.amount));
-                orderAmountMajor = Number(lockedOrder.amount);
-
                 if (verifyStatus === "failed" && lockedOrder.status !== "paid") {
                     await StoreOrderModel.query(trx)
                         .patch({ status: "failed", provider_reference: providerReference })
                         .where({ id: lockedOrder.id });
+                    const metadata = (lockedOrder.metadata || {}) as any;
+                    if (!metadata.inventory_released && Array.isArray(metadata.inventory_reservations)) {
+                        for (const reservation of metadata.inventory_reservations) {
+                            await trx("store_products").where({ id: reservation.product_id }).increment("stock_quantity", Number(reservation.quantity || 0));
+                        }
+                        await StoreOrderModel.query(trx).patch({ metadata: { ...metadata, inventory_released: true } }).where({ id: lockedOrder.id });
+                    }
                     return;
                 }
 
@@ -557,13 +705,11 @@ export class StoreService {
                         .where({ id: lockedOrder.id });
                 }
 
-                const wallet = await WalletService.getOrCreateWallet(lockedOrder.creator_id);
+                const wallet = await WalletService.getOrCreateWallet(lockedOrder.creator_id, String(lockedOrder.currency || 'NGN').toUpperCase() as 'NGN' | 'USD');
                 const feeMinor = lockedOrder.platform_fee_minor || 0;
                 const subtotalMajor = Number(lockedOrder.subtotal || lockedOrder.amount);
                 const subtotalMinor = this.toAmountMinor(subtotalMajor);
                 const grossMajor = this.toAmountMajor(expectedAmountMinor);
-                orderAmountMajor = grossMajor;
-
                 let transaction = await TransactionRepository.getByReference(lockedOrder.reference);
                 if (!transaction) {
                     transaction = await TransactionRepository.create({
@@ -601,7 +747,11 @@ export class StoreService {
                 }
 
                 if (transaction.status !== "completed") {
-                    await WalletRepository.creditWallet(wallet.id, subtotalMajor, trx);
+                    await WalletRepository.creditWallet(wallet.id, subtotalMajor, trx, {
+                        transactionId: transaction.id,
+                        entryType: "store_sale",
+                        reference: `transaction:${transaction.id}:credit`,
+                    });
                     await TransactionRepository.updateStatus(
                         transaction.id,
                         "completed",
@@ -610,7 +760,8 @@ export class StoreService {
                     );
                 }
 
-                if (orderItems.length > 0) {
+                const inventoryWasReserved = Array.isArray((lockedOrder.metadata || {})?.inventory_reservations);
+                if (orderItems.length > 0 && !inventoryWasReserved) {
                     const physicalItemIds = orderItems
                         .filter((item) => item.type_snapshot === "physical")
                         .map((item) => item.product_id);
@@ -643,7 +794,7 @@ export class StoreService {
                         }
                     }
                 }
-                if (orderItems.length === 0 && product.type === "physical" && product.track_inventory) {
+                if (orderItems.length === 0 && !inventoryWasReserved && product.type === "physical" && product.track_inventory) {
                     const liveProduct = await StoreProductRepository.findVisibleById(product.id, trx);
                     if (!liveProduct) throw new Error("Product not found");
                     if ((liveProduct.stock_quantity || 0) < 1) {
@@ -743,31 +894,19 @@ export class StoreService {
 
             if (firstProcessed) {
                 const creator = await CreatorRepository.getOneWhere({ id: order.creator_id }, { user: true }) as any;
+                const receipt = this.buildOrderEmailReceipt(order, orderItems as any[], product.title);
                 if (creator?.user?.email) {
                     await MailService.sendCreatorOrderEmail(
                         creator.user.email,
                         creator.first_name || creator.username,
-                        product.title,
-                        orderAmountMajor,
-                        order.buyer_email,
-                        order.buyer_name,
-                        order.reference,
-                        {
-                            deliveryAddress: order.delivery_address || null,
-                            bookingSlot: bookingDetails
-                                ? { start: bookingDetails.slot_start, end: bookingDetails.slot_end }
-                                : null,
-                        }
+                        receipt,
+                        bookingDetails
+                            ? { start: bookingDetails.slot_start, end: bookingDetails.slot_end }
+                            : null
                     );
                 }
 
-                await MailService.sendOrderConfirmationEmail(
-                    order.buyer_email,
-                    order.buyer_name,
-                    product.title,
-                    orderAmountMajor,
-                    order.reference
-                );
+                await MailService.sendOrderConfirmationEmail(receipt);
             }
 
             if (product.type === "digital" || orderItems.some((item) => item.type_snapshot === "digital")) {
@@ -789,7 +928,8 @@ export class StoreService {
 
     static async checkoutCart(username: string, data: CartCheckoutData) {
         try {
-            const creator = await CreatorRepository.getOneWhere({ username });
+            await this.expirePendingOrders();
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) return NotFound("Creator not found");
             if (!Array.isArray(data.items) || data.items.length === 0) return BadRequest("Cart cannot be empty");
             if (!data.buyer_name?.trim()) return BadRequest("Buyer name is required");
@@ -852,6 +992,7 @@ export class StoreService {
                 const physicalItemIds = lineItems
                     .filter((item) => item.product.type === "physical" && item.product.track_inventory)
                     .map((item) => item.product.id);
+                const byId = new Map<number, any>();
                 if (physicalItemIds.length > 0) {
                     const lockedProducts = await StoreProductRepository.getAllWhere(
                         {},
@@ -860,7 +1001,7 @@ export class StoreService {
                             qb.whereIn("id", physicalItemIds).forUpdate();
                         }
                     ) as any[];
-                    const byId = new Map(lockedProducts.map((p) => [p.id, p]));
+                    lockedProducts.forEach((p) => byId.set(p.id, p));
                     for (const item of lineItems) {
                         if (item.product.type !== "physical" || !item.product.track_inventory) continue;
                         const live = byId.get(item.product.id);
@@ -868,6 +1009,13 @@ export class StoreService {
                             throw new Error(`Insufficient stock for ${item.product.title}`);
                         }
                     }
+                }
+                for (const item of lineItems) {
+                    if (item.product.type !== "physical" || !item.product.track_inventory) continue;
+                    const live = byId.get(item.product.id);
+                    await StoreProductRepository.update(item.product.id, {
+                        stock_quantity: Number(live.stock_quantity || 0) - Number(item.quantity),
+                    } as any, trx);
                 }
 
                 const createdOrder = await StoreOrderRepository.create({
@@ -887,11 +1035,14 @@ export class StoreService {
                     platform_fee_minor: platformFeeMinor,
                     currency: currency || "NGN",
                     reference,
+                    expires_at: new Date(Date.now() + StoreService.ORDER_EXPIRY_MINUTES * 60_000).toISOString(),
                     provider: provider.providerName,
                     metadata: {
                         product_type: "cart",
                         has_digital: hasDigital,
                         has_physical: requiresAddress,
+                        inventory_reservations: lineItems.filter((item) => item.product.type === "physical" && item.product.track_inventory).map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+                        inventory_released: false,
                         platform_fee_rate: this.PLATFORM_FEE_RATE,
                     },
                 } as any, {}, trx);
@@ -925,10 +1076,11 @@ export class StoreService {
                     item_count: order.item_count,
                 },
                 callback_url: callbackUrl,
+                currency: currency || "NGN",
             });
 
             if (!paymentResult.success) {
-                await StoreOrderRepository.updateStatus(order.id, "failed");
+                await this.discardUnpaidOrder(order);
                 return BadRequest("Failed to initialize payment");
             }
 
@@ -1115,7 +1267,7 @@ export class StoreService {
         }
     }
 
-    static async updateOrderStatus(userId: number, orderId: number, status: "cancelled" | "refunded") {
+    static async updateOrderStatus(userId: number, orderId: number, status: "confirmed" | "processing" | "shipped" | "delivered" | "cancelled" | "refunded") {
         try {
             const creator = await CreatorRepository.getOneWhere({ user_id: userId });
             if (!creator) return NotFound("Creator profile not found");
@@ -1123,14 +1275,36 @@ export class StoreService {
             const order = await StoreOrderRepository.findById(orderId);
             if (!order || order.creator_id !== creator.id) return NotFound("Order not found");
 
-            if (status === "refunded" && order.status !== "paid") {
+            if (order.status === status) return Ok(order, "Order status already updated");
+
+            if (status === "refunded" && !["paid", "confirmed", "processing", "shipped", "delivered"].includes(order.status)) {
                 return BadRequest("Only paid orders can be marked as refunded");
             }
-            if (status === "cancelled" && order.status === "paid") {
+            if (status === "cancelled" && ["paid", "confirmed", "processing", "shipped", "delivered"].includes(order.status)) {
                 return BadRequest("Paid orders cannot be cancelled. Use refunded");
             }
+            const allowedTransitions: Record<string, string[]> = {
+                pending: ["cancelled"],
+                paid: ["confirmed", "refunded"],
+                confirmed: ["processing", "refunded"],
+                processing: ["delivered", "shipped", "refunded"],
+                // Existing users may already have orders in the legacy shipped state.
+                shipped: ["delivered", "refunded"],
+            };
+            if (!allowedTransitions[order.status]?.includes(status)) {
+                return BadRequest(`Order cannot move from ${order.status} to ${status}`);
+            }
 
-            const updated = await StoreOrderRepository.updateStatus(order.id, status);
+            const updated = await StoreOrderRepository.transitionStatus(order.id, order.status, status);
+            if (!updated) return BadRequest("Order changed while you were updating it. Refresh and try again");
+
+            if (["confirmed", "processing", "delivered"].includes(status)) {
+                const items = await StoreOrderItemRepository.getByOrderId(order.id);
+                const product = await StoreProductRepository.findById(order.product_id);
+                const receipt = this.buildOrderEmailReceipt(updated, items as any[], product?.title || "Order");
+                await MailService.sendOrderStatusEmail(receipt, status as "confirmed" | "processing" | "delivered");
+            }
+
             return Ok(updated, "Order status updated");
         } catch (err: any) {
             return InternalError(err.message);
@@ -1219,40 +1393,27 @@ export class StoreService {
             const order = await StoreOrderRepository.findById(orderId, { product: true } as any);
             if (!order) return NotFound("Order not found");
             if (order.creator_id !== creator.id) return BadRequest("You do not own this order");
-            if (order.status !== "paid") return BadRequest("Order is not paid");
+            if (!["paid", "confirmed", "processing", "shipped", "delivered"].includes(order.status)) {
+                return BadRequest("Order is not paid");
+            }
 
             const product = (order as any).product;
             const orderItems = await StoreOrderItemRepository.getByOrderId(order.id);
-            const itemSummary = orderItems.length > 0
-                ? `${orderItems.length} item(s)`
-                : (product?.title || "Product");
             const booking = await ServiceBookingRepository.getOneWhere({ order_id: order.id });
+            const receipt = this.buildOrderEmailReceipt(order, orderItems as any[], product?.title || "Order");
 
             if (creator?.user?.email) {
                 await MailService.sendCreatorOrderEmail(
                     creator.user.email,
                     creator.first_name || creator.username,
-                    itemSummary,
-                    order.amount,
-                    order.buyer_email,
-                    order.buyer_name,
-                    order.reference,
-                    {
-                        deliveryAddress: order.delivery_address || null,
-                        bookingSlot: booking
-                            ? { start: booking.slot_start, end: booking.slot_end }
-                            : null,
-                    }
+                    receipt,
+                    booking
+                        ? { start: booking.slot_start, end: booking.slot_end }
+                        : null
                 );
             }
 
-            await MailService.sendOrderConfirmationEmail(
-                order.buyer_email,
-                order.buyer_name,
-                itemSummary,
-                order.amount,
-                order.reference
-            );
+            await MailService.sendOrderConfirmationEmail(receipt);
 
             return Ok(null, "Order emails resent");
         } catch (err: any) {
@@ -1367,7 +1528,7 @@ export class StoreService {
             if (toDate.getTime() - fromDate.getTime() > maxWindowMs) {
                 return BadRequest("Date range too large. Maximum allowed is 31 days");
             }
-            const creator = await CreatorRepository.getOneWhere({ username });
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const service = await StoreProductRepository.findVisibleById(serviceId);
@@ -1404,7 +1565,7 @@ export class StoreService {
 
     static async holdServiceSlot(username: string, serviceId: number, data: HoldServiceSlotData) {
         try {
-            const creator = await CreatorRepository.getOneWhere({ username });
+            const creator = await CreatorRepository.findByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const service = await StoreProductRepository.findVisibleById(serviceId);

@@ -9,11 +9,12 @@
     "knex": "knex",
     "build": "tsc",
     "start:prod": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run build && node --test dist/utils/*.test.js",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "migrate": "npm run knex -- migrate:latest --knexfile ./src/db/knexfile.ts",
-    "db:migrate:make": "npm run knex -- migrate:make $1 -x ts --knexfile ./src/db/knexfile.ts"
+    "db:migrate:make": "npm run knex -- migrate:make $1 -x ts --knexfile ./src/db/knexfile.ts",
+    "db:local:status": "pg_isready -h 127.0.0.1 -p 5432 -d creatorlink_dev"
   },
   "keywords": [],
   "author": "",
