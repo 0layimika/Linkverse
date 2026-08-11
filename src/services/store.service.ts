@@ -344,6 +344,9 @@ export class StoreService {
                 title: data.title,
                 description: data.description ?? null,
                 price: data.price,
+                // Keep the legacy required column populated for older
+                // production schemas that still enforce store_products.amount.
+                amount: data.price,
                 compare_at_price: data.compare_at_price ?? null,
                 currency: storeCurrency,
                 cover_url: data.cover_url ?? null,
@@ -390,6 +393,9 @@ export class StoreService {
             }
 
             const payload: any = { ...data };
+            // Older deployments still have a NOT NULL `amount` column. Keep
+            // it synchronized whenever the canonical `price` changes.
+            if (data.price !== undefined) payload.amount = data.price;
             const updated = await StoreProductRepository.update(productId, payload);
             return Ok(updated, "Product updated successfully");
         } catch (err: any) {
