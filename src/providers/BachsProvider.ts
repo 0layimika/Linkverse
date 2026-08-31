@@ -115,23 +115,18 @@ export class BachsProvider extends PaymentProvider {
             if (!quoteId) throw new Error("Bachs FX quote was not created");
         }
 
-        const response = await this.request<any>("/v1/payouts/withdrawals", {
+        const response = await this.request<any>("/v1/payouts", {
             method: "POST",
             headers: { Accept: "application/json", "Idempotency-Key": params.reference },
             body: JSON.stringify({
-                from_currency: sourceCurrency,
-                to_currency: "NGN",
-                amount,
-                payment_method: "BANK_TRANSFER",
+                destination: params.recipient_code,
+                ...(quoteId ? { quote_id: quoteId } : { amount }),
                 reference: params.reference,
-                email: params.email || "",
-                payout_destination_id: params.recipient_code,
-                ...(quoteId ? { quote_id: quoteId } : {}),
             }),
         });
         const payout = response?.data?.data || response?.data || response;
         const status = String(payout.status || "pending").toLowerCase();
-        return { success: true, transfer_code: String(payout.reference || payout.id || params.reference), reference: params.reference, status: status === "paid" || status === "success" ? "success" : status === "failed" ? "failed" : "pending" };
+        return { success: true, transfer_code: String(payout.reference || payout.id || params.reference), reference: params.reference, status: status === "completed" || status === "paid" || status === "success" ? "success" : status === "failed" ? "failed" : "pending" };
     }
 
     verifyWebhookSignature(payload: string, signature: string, timestamp?: string): boolean {
