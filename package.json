@@ -2,14 +2,15 @@
   "name": "creatorlink-be",
   "version": "1.0.0",
   "engines": {
-  "node": "20.x"
-},
+    "node": "20.x"
+  },
   "main": "index.js",
   "scripts": {
     "knex": "knex",
     "build": "tsc",
+    "worker:wallet-settlement": "node dist/workers/wallet-settlement.worker.js",
     "start:prod": "npm run migrate && node dist/index.js",
-    "test": "npm run build && node --test dist/utils/*.test.js",
+    "test": "npm run build && node --test dist/utils/*.test.js dist/providers/*.test.js dist/services/*.test.js",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "migrate": "npm run knex -- migrate:latest --knexfile ./src/db/knexfile.ts",
@@ -25,6 +26,7 @@
     "@types/multer": "^2.0.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
+    "bullmq": "^5.81.5",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -35,6 +37,7 @@
     "objection": "^3.1.5",
     "pg": "^8.16.3",
     "qrcode": "^1.5.4",
+    "redis": "^5.12.1",
     "resend": "^6.8.0",
     "serverless-http": "^4.0.0",
     "zod": "^4.3.5"

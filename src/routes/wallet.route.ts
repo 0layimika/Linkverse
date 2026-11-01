@@ -6,6 +6,7 @@ import { auth } from '../middlewares/auth.middleware';
 import {
     setBankAccountSchema,
     initiateWithdrawalSchema,
+    quoteWithdrawalSchema,
     resolveAccountSchema,
     paginationSchema,
 } from '../validators/withdrawal.validator';
@@ -24,7 +25,8 @@ router.post('/bank-account', auth, validate(setBankAccountSchema), WithdrawalCon
 router.get('/bank-account', auth, WithdrawalController.getBankAccount);
 
 // Withdrawal routes
+router.post('/withdraw/quote', auth, validate(quoteWithdrawalSchema), WithdrawalController.quoteWithdrawal);
 router.post('/withdraw', auth, validate(initiateWithdrawalSchema), WithdrawalController.initiateWithdrawal);
-router.get('/withdrawals', auth, WithdrawalController.getWithdrawalHistory);
+router.get('/withdrawals', auth, validate(paginationSchema), WithdrawalController.getWithdrawalHistory);
 
 export default router;

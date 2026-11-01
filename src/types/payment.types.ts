@@ -60,6 +60,7 @@ export interface InitiateTransferParams {
     reason?: string;
     email?: string;
     currency?: string;
+    quote_id?: string;
 }
 
 export interface InitiateTransferResponse {
@@ -67,6 +68,18 @@ export interface InitiateTransferResponse {
     transfer_code: string;
     reference: string;
     status: 'pending' | 'success' | 'failed';
+    provider_response?: Record<string, unknown>;
+}
+
+export interface TransferQuote {
+    quote_id: string;
+    from_currency: string;
+    to_currency: string;
+    from_amount: string;
+    to_amount: string;
+    exchange_rate: string;
+    expires_at: string;
+    raw: Record<string, unknown>;
 }
 
 export interface WebhookEvent {

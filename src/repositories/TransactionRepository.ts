@@ -25,8 +25,12 @@ class TransactionRepositoryClass extends BaseRepository<TransactionRecord, Trans
         super(TransactionModel);
     }
 
-    async getByReference(reference: string): Promise<TransactionRecord | undefined> {
-        return await TransactionModel.query().findOne({ reference });
+    async getByReference(reference: string, trx?: Transaction): Promise<TransactionRecord | undefined> {
+        return await TransactionModel.query(trx).findOne({ reference });
+    }
+
+    async getByIdForUpdate(id: number, trx: Transaction): Promise<TransactionRecord | undefined> {
+        return await TransactionModel.query(trx).findById(id).forUpdate();
     }
 
     async getByProviderReference(providerReference: string): Promise<TransactionRecord | undefined> {
@@ -49,10 +53,11 @@ class TransactionRepositoryClass extends BaseRepository<TransactionRecord, Trans
             .offset(offset);
     }
 
-    async getTransactionsForWallets(walletIds: number[], limit = 50, offset = 0): Promise<TransactionRecord[]> {
+    async getTransactionsForWallets(walletIds: number[], limit = 50, offset = 0, type?: TransactionType): Promise<TransactionRecord[]> {
         if (!walletIds.length) return [];
         return await TransactionModel.query()
             .whereIn('wallet_id', walletIds)
+            .modify((query) => { if (type) query.where({ type }); })
             .orderBy('created_at', 'desc')
             .limit(limit)
             .offset(offset);

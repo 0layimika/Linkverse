@@ -16,9 +16,10 @@ export abstract class BaseRepository<T, M extends Model> {
         args: object,
         withGraphFetched = {},
         modifyFn?: (qb: QueryBuilder<M>) => void,
+        transaction?: Transaction,
     ): Promise<Array<T>> {
         return await this.model
-            .query()
+            .query(transaction)
             .modify((qb:any) => {
                 Object.entries(args).forEach(([key, value]) => {
                     if (value === undefined || value === null) return;
@@ -36,8 +37,9 @@ export abstract class BaseRepository<T, M extends Model> {
         args: object,
         withGraphFetched?: object,
         modifyGraph?: object,
+        transaction?: Transaction,
     ): Promise<T | undefined> {
-        let query = this.model.query().findOne(args);
+        let query = this.model.query(transaction).findOne(args);
         if (withGraphFetched && Object.keys(withGraphFetched).length > 0)
             query = query.withGraphFetched(withGraphFetched);
         if (modifyGraph && Object.keys(modifyGraph).length > 0)

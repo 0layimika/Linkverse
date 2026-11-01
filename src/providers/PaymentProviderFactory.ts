@@ -17,6 +17,12 @@ export function getPaymentProvider(): PaymentProvider {
     return providers[currentProvider]();
 }
 
+export function getPaymentProviderByName(name: string): PaymentProvider {
+    const create = providers[name as PaymentProviderType];
+    if (!create) throw new Error(`Unsupported payment provider: ${name}`);
+    return create();
+}
+
 export function setPaymentProvider(provider: PaymentProviderType): void {
     currentProvider = provider;
 }

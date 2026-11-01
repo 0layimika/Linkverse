@@ -7,6 +7,7 @@ export class WalletModel extends Model {
     id!: number;
     creator_id!: number;
     balance!: number;
+    pending_balance!: number;
     currency!: string;
     created_at!: string;
     updated_at!: string;
@@ -19,6 +20,7 @@ export class WalletModel extends Model {
                 id: { type: "integer" },
                 creator_id: { type: "integer" },
                 balance: { type: "number" },
+                pending_balance: { type: "number" },
                 currency: { type: "string" },
             },
         };

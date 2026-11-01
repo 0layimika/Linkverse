@@ -7,7 +7,7 @@ import { StoreOrderItemRepository } from "../repositories/StoreOrderItemReposito
 import { StoreDownloadTokenRepository } from "../repositories/StoreDownloadTokenRepository";
 import { ServiceAvailabilityRepository } from "../repositories/ServiceAvailabilityRepository";
 import { ServiceBookingRepository } from "../repositories/ServiceBookingRepository";
-import { getPaymentProvider } from "../providers/PaymentProviderFactory";
+import { getPaymentProvider, getPaymentProviderByName } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
 import { FRONTEND_URL } from "../config/env";
 import { StoreProductType } from "../types/store.types";
@@ -16,6 +16,8 @@ import { getSignedDownloadUrl } from "./media.service";
 import { WalletService } from "./wallet.service";
 import { TransactionRepository } from "../repositories/TransactionRepository";
 import { WalletRepository } from "../repositories/WalletRepository";
+import { WalletPendingBalanceService } from './wallet-pending-balance.service';
+import { paymentMethodFromData, UNKNOWN_PAYMENT_METHOD } from '../utils/payment-method';
 import knex from "../db/knex";
 import { ServiceBookingModel } from "../models/ServiceBookingModel";
 import { StoreOrderModel } from "../models/StoreOrderModel";
@@ -638,7 +640,7 @@ export class StoreService {
         }
     }
 
-    static async verifyPurchase(reference: string, webhook?: { status?: 'success' | 'failed' | 'pending'; provider_reference?: string; amount?: number; currency?: string }) {
+    static async verifyPurchase(reference: string, webhook?: { status?: 'success' | 'failed' | 'pending'; provider_reference?: string; amount?: number; currency?: string; payment_data?: Record<string, unknown> }) {
         try {
             await this.expirePendingOrders();
             await ServiceBookingRepository.expireHolds();
@@ -648,9 +650,19 @@ export class StoreService {
             if (webhook?.currency && String(webhook.currency).toUpperCase() === String(order.currency).toUpperCase() && webhook.amount !== undefined && Math.abs(Number(webhook.amount) - Number(order.amount)) > 0.01) {
                 return BadRequest(`Webhook amount mismatch: expected ${order.amount} ${order.currency}, received ${webhook.amount} ${webhook.currency}`);
             }
+            let method = UNKNOWN_PAYMENT_METHOD;
+            if (webhook?.status === 'success' && webhook.payment_data) {
+                method = String(order.currency).toUpperCase() === 'USD'
+                    ? await getPaymentProviderByName(order.provider).resolvePaymentMethod(webhook.payment_data, order.reference)
+                    : paymentMethodFromData(webhook.payment_data);
+            }
             // Webhooks are the source of truth. Once our order is paid/failed,
             // the redirect verifier must not call a provider again.
             if (["paid", "confirmed", "processing", "shipped", "delivered"].includes(order.status as string)) {
+                if (String(order.currency).toUpperCase() === 'USD' && method.type !== 'unknown') {
+                    const sale = await TransactionRepository.getByReference(order.reference);
+                    if (sale) await WalletPendingBalanceService.confirmPaymentMethod(sale.id, method);
+                }
                 const tokens = await StoreDownloadTokenRepository.getAllWhere({ order_id: order.id });
                 return Ok({ status: "paid", download_token: tokens[0]?.token, download_tokens: tokens }, "Order already paid");
             }
@@ -711,12 +723,12 @@ export class StoreService {
                         .where({ id: lockedOrder.id });
                 }
 
-                const wallet = await WalletService.getOrCreateWallet(lockedOrder.creator_id, String(lockedOrder.currency || 'NGN').toUpperCase() as 'NGN' | 'USD');
+                const wallet = await WalletService.getOrCreateWallet(lockedOrder.creator_id, String(lockedOrder.currency || 'NGN').toUpperCase() as 'NGN' | 'USD', trx);
                 const feeMinor = lockedOrder.platform_fee_minor || 0;
                 const subtotalMajor = Number(lockedOrder.subtotal || lockedOrder.amount);
                 const subtotalMinor = this.toAmountMinor(subtotalMajor);
                 const grossMajor = this.toAmountMajor(expectedAmountMinor);
-                let transaction = await TransactionRepository.getByReference(lockedOrder.reference);
+                let transaction = await TransactionRepository.getByReference(lockedOrder.reference, trx);
                 if (!transaction) {
                     transaction = await TransactionRepository.create({
                         wallet_id: wallet.id,
@@ -757,6 +769,7 @@ export class StoreService {
                         transactionId: transaction.id,
                         entryType: "store_sale",
                         reference: `transaction:${transaction.id}:credit`,
+                        paymentMethod: method,
                     });
                     await TransactionRepository.updateStatus(
                         transaction.id,
@@ -777,7 +790,8 @@ export class StoreService {
                             {},
                             (qb: any) => {
                                 qb.whereIn("id", physicalItemIds).forUpdate();
-                            }
+                            },
+                            trx
                         ) as any[];
                         const productById = new Map(lockedProducts.map((p) => [p.id, p]));
                         for (const item of orderItems) {
@@ -822,7 +836,7 @@ export class StoreService {
                         let tokenRecord = await StoreDownloadTokenRepository.getOneWhere({
                             order_id: target.order_id,
                             product_id: target.product_id,
-                        } as any);
+                        } as any, {}, {}, trx);
                         if (!tokenRecord) {
                             tokenRecord = await StoreDownloadTokenRepository.create({
                                 order_id: target.order_id,
@@ -896,6 +910,11 @@ export class StoreService {
 
             if (verifyStatus === "failed") {
                 return BadRequest("Payment failed");
+            }
+
+            if (String(order.currency).toUpperCase() === 'USD') {
+                const saleTransaction = await TransactionRepository.getByReference(order.reference);
+                if (saleTransaction) await WalletPendingBalanceService.enqueueTransaction(saleTransaction.id);
             }
 
             if (firstProcessed) {

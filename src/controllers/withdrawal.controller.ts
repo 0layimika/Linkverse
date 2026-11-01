@@ -52,6 +52,15 @@ export class WithdrawalController {
         }
     }
 
+    static async quoteWithdrawal(req: Request, res: Response) {
+        try {
+            const result = await WithdrawalService.quoteWithdrawal(req.user.id, req.body);
+            return ExpressResponse(res, result);
+        } catch (err: any) {
+            return ExpressResponse(res, InternalError(err.message));
+        }
+    }
+
     static async getWithdrawalHistory(req: Request, res: Response) {
         try {
             const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;

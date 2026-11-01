@@ -1,25 +1,17 @@
 import crypto from 'crypto';
-import { WalletRepository } from "../repositories/WalletRepository";
-import { TransactionRepository } from "../repositories/TransactionRepository";
+import { WithdrawalQuoteService } from './withdrawal-quote.service';
 import { BankAccountRepository } from "../repositories/BankAccountRepository";
 import { CreatorRepository } from "../repositories/CreatorRepository";
-import { WalletService } from "./wallet.service";
 import { getPaymentProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
-import knex from "../db/knex";
-import { UserRepository } from '../repositories/UserRepository';
-import bcrypt from 'bcryptjs';
 
-const MINIMUM_WITHDRAWAL_AMOUNT = 1000; // NGN minimum
-const userRepo = new UserRepository();
 export interface SetBankAccountData {
     account_number: string;
     bank_code: string;
 }
 
 export interface WithdrawalData {
-    amount: number; // major currency unit
-    currency?: 'NGN' | 'USD';
+    quote_id: string;
     password: string;
 }
 
@@ -119,137 +111,15 @@ export class WithdrawalService {
         }
     }
 
+    static async quoteWithdrawal(userId: number, data: { amount: number; currency?: 'NGN' | 'USD' }) {
+        return WithdrawalQuoteService.quote(userId, data);
+    }
+
     static async initiateWithdrawal(userId: number, data: WithdrawalData) {
-        let trx: any;
-        try {
-            const creator = await CreatorRepository.getOneWhere({ user_id: userId }, { user: true });
-            if (!creator) {
-                return NotFound("Creator profile not found");
-            }
-            const user = await userRepo.getOneWhere({ id: creator.user_id });
-            if (!user) {
-                return NotFound("User not found");
-            }
-            if (!user.password_hash || !(await bcrypt.compare(data.password, user.password_hash))) {
-                return BadRequest("Incorrect password");
-            }
-
-            const currency = data.currency || 'NGN';
-            const wallet = await WalletService.getOrCreateWallet(creator.id, currency);
-
-            // Check minimum amount
-            const minimum = currency === 'USD' ? 1 : MINIMUM_WITHDRAWAL_AMOUNT;
-            if (data.amount < minimum) {
-                return BadRequest(`Minimum withdrawal amount is ${minimum} ${currency}`);
-            }
-
-            // Check wallet balance
-            if (wallet.balance < data.amount) {
-                return BadRequest("Insufficient balance");
-            }
-
-            // Get bank account
-            const bankAccount = await BankAccountRepository.getByCreatorId(creator.id);
-            if (!bankAccount) {
-                return BadRequest("Please set up your bank account for withdrawal");
-            }
-
-            const provider = getPaymentProvider();
-
-            // Check if recipient code needs to be recreated for different provider
-            if (bankAccount.provider !== provider.providerName) {
-                const recipientResult = await provider.createTransferRecipient({
-                    account_number: bankAccount.account_number,
-                    account_name: bankAccount.account_name,
-                    bank_code: bankAccount.bank_code,
-                });
-
-                if (!recipientResult.success) {
-                    return BadRequest("Could not create transfer recipient");
-                }
-
-                await BankAccountRepository.update(bankAccount.id, {
-                    recipient_code: recipientResult.recipient_code,
-                    provider: provider.providerName,
-                });
-
-                bankAccount.recipient_code = recipientResult.recipient_code;
-            }
-
-            const reference = this.generateReference();
-            const amountInKobo = data.amount * 100;
-
-            // Only hold a database connection for the atomic debit + pending
-            // transaction write. In production the pool may have max=1; the
-            // preflight reads above must therefore happen before opening trx.
-            trx = await knex.transaction();
-
-            // Debit wallet
-            await WalletRepository.debitWallet(wallet.id, data.amount, trx, {
-                reference: `withdrawal:${reference}:debit`,
-                entryType: "withdrawal",
-                metadata: { withdrawal_reference: reference },
-            });
-
-            // Create pending transaction
-            const transaction = await TransactionRepository.create({
-                wallet_id: wallet.id,
-                type: 'withdrawal',
-                amount: data.amount,
-                currency,
-                status: 'pending',
-                reference,
-                provider: provider.providerName,
-                description: `Withdrawal to ${bankAccount.bank_name} - ${bankAccount.account_number}`,
-                metadata: {
-                    bank_name: bankAccount.bank_name,
-                    account_number: bankAccount.account_number,
-                    account_name: bankAccount.account_name,
-                },
-            } as any, {}, trx);
-
-            // Initiate transfer
-            const transferResult = await provider.initiateTransfer({
-                amount: amountInKobo,
-                recipient_code: bankAccount.recipient_code!,
-                reference,
-                reason: 'CreatorLink Withdrawal',
-                email: user.email || '',
-                currency,
-            });
-
-            if (!transferResult.success) {
-                await trx.rollback();
-                return BadRequest("Failed to initiate transfer");
-            }
-
-            await trx.commit();
-
-            return Ok({
-                transaction_id: transaction.id,
-                reference,
-                status: transferResult.status,
-                amount: data.amount,
-            }, "Withdrawal initiated successfully");
-        } catch (err: any) {
-            if (trx) await trx.rollback();
-            return InternalError(err.message);
-        }
+        return WithdrawalQuoteService.execute(userId, data);
     }
 
     static async getWithdrawalHistory(userId: number, limit = 50, offset = 0) {
-        try {
-            const creator = await CreatorRepository.getOneWhere({ user_id: userId });
-            if (!creator) {
-                return NotFound("Creator profile not found");
-            }
-
-            const wallet = await WalletService.getOrCreateWallet(creator.id);
-            const withdrawals = await TransactionRepository.getWithdrawalsForWallet(wallet.id, limit, offset);
-
-            return Ok(withdrawals, "Withdrawal history retrieved successfully");
-        } catch (err: any) {
-            return InternalError(err.message);
-        }
+        return WithdrawalQuoteService.history(userId, limit, offset);
     }
 }

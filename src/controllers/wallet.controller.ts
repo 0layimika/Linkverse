@@ -2,6 +2,7 @@ import { Response, Request } from "express";
 import { ExpressResponse, InternalError } from "../utils/response";
 import { WalletService } from "../services/wallet.service";
 import { GiftService } from "../services/gift.service";
+import { TransactionType } from "../models/TransactionModel";
 
 export class WalletController {
     static async getMyWallet(req: Request, res: Response) {
@@ -24,7 +25,7 @@ export class WalletController {
 
     static async getTransactionHistory(req: Request, res: Response) {
         try {
-            const type = req.query.type as 'gift' | 'withdrawal' | undefined;
+            const type = req.query.type as TransactionType | undefined;
             const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
             const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
 

@@ -1,15 +1,20 @@
 import crypto from 'crypto';
-import { WalletRepository } from "../repositories/WalletRepository";
 import { TransactionRepository } from "../repositories/TransactionRepository";
 import { CreatorRepository } from "../repositories/CreatorRepository";
 import { WalletService } from "./wallet.service";
 import { getPaymentProvider } from "../providers/PaymentProviderFactory";
 import { BachsProvider, KoraProvider, PaystackProvider } from "../providers/PaymentProviderFactory";
 import { BadRequest, InternalError, NotFound, Ok } from "@0layimika/api-response-kit";
-import { FRONTEND_URL } from "../config/env";
+import { FRONTEND_URL, GIFT_FEE_PERCENT } from "../config/env";
 import { MailService } from "./mail.service";
 import knex from "../db/knex";
 import { StoreService } from "./store.service";
+import { GiftSettlementService } from "./gift-settlement.service";
+import { WithdrawalSettlementService } from "./withdrawal-settlement.service";
+import { calculateGiftFee } from "../utils/gift-fee";
+import { MAX_GIFT_AMOUNTS } from '../config/gift.config';
+import { paymentMethodFromData } from '../utils/payment-method';
+import { WalletPendingBalanceService } from './wallet-pending-balance.service';
 
 export interface InitiateGiftData {
     amount: number; // major currency unit
@@ -62,17 +67,23 @@ export class GiftService {
             if (data.amount < minimum) {
                 return BadRequest(`Minimum gift amount is ${minimum} ${currency}`);
             }
+            const maximum = MAX_GIFT_AMOUNTS[currency];
+            if (data.amount > maximum) {
+                return BadRequest(`Maximum gift amount is ${maximum.toLocaleString('en-US')} ${currency}`);
+            }
 
             const wallet = await WalletService.getOrCreateWallet(creator.id, currency);
             const provider = getPaymentProvider();
             const reference = this.generateReference();
             const amountInMinor = Math.round(data.amount * 100);
+            const giftAmount = amountInMinor / 100;
+            const giftFee = calculateGiftFee(giftAmount, GIFT_FEE_PERCENT);
 
             // Create pending transaction
             const transaction = await TransactionRepository.create({
                 wallet_id: wallet.id,
                 type: 'gift',
-                amount: data.amount,
+                amount: giftAmount,
                 currency,
                 status: 'pending',
                 reference,
@@ -83,6 +94,7 @@ export class GiftService {
                 metadata: {
                     creator_username: creator.username,
                     creator_id: creator.id,
+                    gift_fee: giftFee,
                 },
             } as any);
 
@@ -112,6 +124,11 @@ export class GiftService {
                 authorization_url: paymentResult.authorization_url,
                 reference: paymentResult.reference,
                 transaction_id: transaction.id,
+                gift_amount: giftAmount,
+                fee_amount: giftFee.amount_minor / 100,
+                fee_percent: giftFee.rate_percent,
+                net_amount: (amountInMinor - giftFee.amount_minor) / 100,
+                currency,
             }, "Payment initialized successfully");
         } catch (err: any) {
             return InternalError(err.message);
@@ -133,22 +150,10 @@ export class GiftService {
             const verifyResult = await provider.verifyPayment(reference);
 
             if (verifyResult.status === 'success') {
-                // Credit wallet
-                await WalletService.creditWallet(
-                    transaction.wallet_id,
-                    transaction.amount,
-                    transaction.id
-                );
-
-                // Update transaction with provider reference
-                await TransactionRepository.updateStatus(
-                    transaction.id,
-                    'completed',
-                    verifyResult.provider_reference
-                );
+                const processed = await GiftSettlementService.complete(transaction.id, verifyResult.provider_reference);
 
                 // Send tip notification email to creator
-                await this.sendTipNotification(transaction);
+                if (processed) await this.sendTipNotification(transaction);
 
                 return Ok({ status: 'completed' }, "Gift received successfully");
             } else if (verifyResult.status === 'failed') {
@@ -224,6 +229,7 @@ export class GiftService {
                             provider_reference: event.data.reference,
                             amount: Number(event.data.amount || 0),
                             currency: event.data.currency,
+                            payment_data: body?.data,
                         });
                         console.log('[Bachs][webhook] processing:store-fulfillment:result', storeResult);
                         await this.completeWebhook(_provider, claim.eventId);
@@ -233,36 +239,30 @@ export class GiftService {
                 }
 
                 if (transaction.status === 'completed') {
+                    if (transaction.currency === 'USD' && ['gift', 'store'].includes(transaction.type)
+                        && (!transaction.metadata?.payment_method || transaction.metadata.payment_method.type === 'unknown')) {
+                        const method = await paymentProvider.resolvePaymentMethod(body?.data, transaction.reference);
+                        await WalletPendingBalanceService.confirmPaymentMethod(transaction.id, method);
+                    }
+                    await this.completeWebhook(_provider, claim.eventId);
                     return Ok(null, "Transaction already processed");
                 }
 
                 if (transaction.type === 'gift') {
                     console.log('[Bachs][webhook] processing:gift-credit:start', { transactionId: transaction.id, walletId: transaction.wallet_id });
-                    // Resolve amount from provider event payload when available.
-                    // Paystack sends minor units (kobo); Kora sends major units (naira).
-                    // Bachs collection events may contain a settlement/converted
-                    // amount (not the creator's gift amount). Our transaction is
-                    // the source of truth for the amount to credit.
-                    const amountFromEvent = Number(event.data.amount);
-                    if (_provider === 'bachs' && event.data.currency && String(event.data.currency).toUpperCase() === String(transaction.currency).toUpperCase() && Number.isFinite(amountFromEvent) && Math.abs(amountFromEvent - Number(transaction.amount)) > 0.01) {
+                    // The saved gift and fee remain authoritative when Bachs
+                    // reports settlement in another currency.
+                    const amountFromEvent = Number(event.data.amount) / (_provider === 'paystack' ? 100 : 1);
+                    if (event.data.currency && String(event.data.currency).toUpperCase() === String(transaction.currency).toUpperCase() && Number.isFinite(amountFromEvent) && Math.abs(amountFromEvent - Number(transaction.amount)) > 0.01) {
                         throw new Error(`Webhook amount mismatch for ${transaction.reference}: expected ${transaction.amount} ${transaction.currency}, received ${amountFromEvent} ${event.data.currency}`);
                     }
-                    const creditedAmount = _provider === 'bachs'
-                        ? Number(transaction.amount)
-                        : Number.isFinite(amountFromEvent) && amountFromEvent > 0
-                            ? (_provider === 'paystack' ? amountFromEvent / 100 : amountFromEvent)
-                            : transaction.amount;
-                    await WalletService.creditWallet(
-                        transaction.wallet_id,
-                        creditedAmount,
-                        transaction.id
-                    );
-
-                    // Update transaction status
-                    await TransactionRepository.updateStatus(transaction.id, 'completed', event.data.reference);
+                    const method = transaction.currency === 'USD'
+                        ? await paymentProvider.resolvePaymentMethod(body?.data, transaction.reference)
+                        : paymentMethodFromData(body?.data);
+                    const processed = await GiftSettlementService.complete(transaction.id, event.data.reference, method);
 
                     // Send tip notification email to creator
-                    await this.sendTipNotification(transaction);
+                    if (processed) await this.sendTipNotification(transaction);
                     console.log('[Bachs][webhook] processing:gift-credit:complete', { transactionId: transaction.id });
                 }
 
@@ -280,35 +280,20 @@ export class GiftService {
                 return Ok(null, "Failed charge webhook processed");
             }
 
-            // Handle transfer events for withdrawals
-            if (event.event === 'transfer.success' || event.event === 'payout.completed' || event.event === 'payout.paid') {
-                const transaction = await TransactionRepository.getByReference(event.data.reference);
-                if (transaction && event.data.currency && event.data.amount !== undefined && String(event.data.currency).toUpperCase() === String(transaction.currency).toUpperCase() && Math.abs(Number(event.data.amount) - Number(transaction.amount)) > 0.01) {
-                    throw new Error(`Payout amount mismatch for ${transaction.reference}: expected ${transaction.amount} ${transaction.currency}, received ${event.data.amount} ${event.data.currency}`);
-                }
-                if (transaction && transaction.type === 'withdrawal' && transaction.status === 'pending') {
-                    await TransactionRepository.updateStatus(transaction.id, 'completed', event.data.reference);
-                }
+            // Shared settlement keeps payout, fee status and any refunds atomic.
+            if (['transfer.success', 'payout.completed', 'payout.paid', 'transfer.failed', 'payout.failed'].includes(event.event)) {
+                const failed = event.event === 'transfer.failed' || event.event === 'payout.failed';
+                const rawData = body?.data || {};
+                const payoutData = _provider === 'paystack' && rawData.amount !== undefined
+                    ? { ...rawData, amount: Number(rawData.amount) / 100 }
+                    : rawData;
+                await WithdrawalSettlementService.settle(
+                    _provider, event.data.reference, failed ? 'failed' : 'success',
+                    rawData.withdrawal_id || rawData.id || rawData.transfer_code || event.data.reference,
+                    payoutData,
+                );
                 await this.completeWebhook(_provider, claim.eventId);
-                return Ok(null, "Transfer success webhook processed");
-            }
-
-            if (event.event === 'transfer.failed' || event.event === 'payout.failed') {
-                const transaction = await TransactionRepository.getByReference(event.data.reference);
-                if (transaction && event.data.currency && event.data.amount !== undefined && String(event.data.currency).toUpperCase() === String(transaction.currency).toUpperCase() && Math.abs(Number(event.data.amount) - Number(transaction.amount)) > 0.01) {
-                    throw new Error(`Payout amount mismatch for ${transaction.reference}: expected ${transaction.amount} ${transaction.currency}, received ${event.data.amount} ${event.data.currency}`);
-                }
-                if (transaction && transaction.type === 'withdrawal' && transaction.status === 'pending') {
-                    // Refund the wallet
-                    await WalletRepository.creditWallet(transaction.wallet_id, transaction.amount, undefined, {
-                        transactionId: transaction.id,
-                        reference: `transaction:${transaction.id}:refund`,
-                        entryType: "withdrawal_refund",
-                    });
-                    await TransactionRepository.updateStatus(transaction.id, 'failed');
-                }
-                await this.completeWebhook(_provider, claim.eventId);
-                return Ok(null, "Transfer failed webhook processed");
+                return Ok(null, failed ? 'Transfer failed; withdrawal and fee refunded' : 'Transfer success webhook processed');
             }
 
             await this.completeWebhook(_provider, claim.eventId);
