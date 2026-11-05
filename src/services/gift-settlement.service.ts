@@ -5,6 +5,13 @@ import { calculateGiftFee } from '../utils/gift-fee';
 import { WalletPendingBalanceService } from './wallet-pending-balance.service';
 import { earningsBalanceType, UNKNOWN_PAYMENT_METHOD, type PaymentMethodEvidence } from '../utils/payment-method';
 
+export class GiftRecipientUnavailableError extends Error {
+    constructor() {
+        super('Creator not found');
+        this.name = 'GiftRecipientUnavailableError';
+    }
+}
+
 export class GiftSettlementService {
     /** Credit the gross gift and deduct its saved fee atomically, once per gift. */
     static async complete(transactionId: number, providerReference?: string, method: PaymentMethodEvidence = UNKNOWN_PAYMENT_METHOD): Promise<boolean> {
@@ -13,6 +20,17 @@ export class GiftSettlementService {
             const gift = await TransactionRepository.getByIdForUpdate(transactionId, trx);
             if (!gift || gift.type !== 'gift') throw new Error('Gift transaction not found');
             if (gift.status === 'completed') return false;
+
+            // Resolve the recipient from the wallet, not caller-supplied metadata.
+            // Hold a shared user lock so blocking cannot race the wallet credit.
+            const recipient = await trx('users')
+                .join('creators', 'creators.user_id', 'users.id')
+                .join('wallets', 'wallets.creator_id', 'creators.id')
+                .where('wallets.id', gift.wallet_id)
+                .select('users.is_blocked')
+                .forShare('users')
+                .first();
+            if (!recipient || recipient.is_blocked) throw new GiftRecipientUnavailableError();
 
             const grossAmount = Number(gift.amount);
             pendingCredit = earningsBalanceType(gift.currency, method) === 'pending';

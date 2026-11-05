@@ -9,7 +9,7 @@ import { normalizeSocialLinks, type SocialLinkInput } from "../utils/social-link
 export class ProfileService {
     static async getPublicProfile(username: string) {
         try {
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) {
                 return NotFound("Creator not found");
             }

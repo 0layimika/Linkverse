@@ -83,7 +83,7 @@ export class AnalyticsService {
 
     static async trackProfileView(username: string, data: TrackingData) {
         try {
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) {
                 return NotFound("Creator not found");
             }

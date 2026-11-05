@@ -55,7 +55,7 @@ export class ProfileController {
     static async getQRCode(req: Request, res: Response) {
         try {
             const username = req.params.username as string;
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) {
                 return ExpressResponse(res, NotFound("Creator not found"));
             }

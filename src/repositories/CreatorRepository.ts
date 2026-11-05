@@ -1,6 +1,7 @@
 import { BaseRepository } from "./BaseRepository";
 import { CreatorModel } from "../models/CreatorModel";
 import { normalizeUsername } from "../utils/username";
+import { UserModel } from '../models/UserModel';
 
 export interface Creator {
     id: number;
@@ -30,6 +31,16 @@ class CreatorRepositoryClass extends BaseRepository<Creator, CreatorModel> {
         }
 
         return await query.first() as Creator | undefined;
+    }
+
+    // Keep findByUsername unfiltered so blocked accounts still reserve their usernames.
+    async findPublicByUsername(username: string): Promise<Creator | undefined> {
+        return await CreatorModel.query()
+            .whereRaw('LOWER(username) = ?', [normalizeUsername(username)])
+            .whereExists(UserModel.query().select(1)
+                .whereColumn('users.id', 'creators.user_id')
+                .where('users.is_blocked', false))
+            .first() as Creator | undefined;
     }
 
 }

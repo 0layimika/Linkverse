@@ -49,6 +49,9 @@ export class AuthService {
             if (!dbUser) {
                 return NotFound("User not found")
             }
+            if (dbUser.is_blocked) {
+                return Forbidden("Your account has been blocked")
+            }
             const updatedUser = await userRepo.update(Number(user.id), { verified: true })
             const Accesstoken = jwt.sign({
                 id: updatedUser.id,
@@ -105,6 +108,9 @@ export class AuthService {
         if (!passwordvalid) {
             return Forbidden("Incorrect Password")
         }
+        if (user.is_blocked) {
+            return Forbidden("Your account has been blocked")
+        }
         if (!user.verified) {
             return Forbidden("Please verify account")
         }
@@ -113,7 +119,7 @@ export class AuthService {
         return Ok({
             creator: creator || null,
             token,
-            user: { id: user.id, email: user.email, verified: user.verified }
+            user: { id: user.id, email: user.email, verified: user.verified, is_blocked: user.is_blocked }
         }, creator ? "Login Successful" : "Continue creator profile setup")
     }
 

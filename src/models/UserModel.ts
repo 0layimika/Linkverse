@@ -8,6 +8,7 @@ export class UserModel extends Model {
     password_hash!: string;
     created_at!: Date;
     verified!: boolean;
+    is_blocked!: boolean;
 
     static jsonSchema = {
         type: 'object',
@@ -18,6 +19,7 @@ export class UserModel extends Model {
             password_hash: { type: 'string' },
             created_at: { type: 'string', format: 'date-time' },
             verified: { type: 'boolean' },
+            is_blocked: { type: 'boolean' },
         },
     };
 

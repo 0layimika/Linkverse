@@ -439,7 +439,7 @@ export class StoreService {
     static async getStorefront(username: string, limit = 50, offset = 0) {
         try {
             await this.expirePendingOrders();
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const [products, profileConfig] = await Promise.all([
@@ -475,7 +475,7 @@ export class StoreService {
     static async initiatePurchase(username: string, productId: number, data: InitiatePurchaseData) {
         try {
             await this.expirePendingOrders();
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const product = await StoreProductRepository.findVisibleById(productId);
@@ -954,7 +954,7 @@ export class StoreService {
     static async checkoutCart(username: string, data: CartCheckoutData) {
         try {
             await this.expirePendingOrders();
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) return NotFound("Creator not found");
             if (!Array.isArray(data.items) || data.items.length === 0) return BadRequest("Cart cannot be empty");
             if (!data.buyer_name?.trim()) return BadRequest("Buyer name is required");
@@ -1553,7 +1553,7 @@ export class StoreService {
             if (toDate.getTime() - fromDate.getTime() > maxWindowMs) {
                 return BadRequest("Date range too large. Maximum allowed is 31 days");
             }
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const service = await StoreProductRepository.findVisibleById(serviceId);
@@ -1590,7 +1590,7 @@ export class StoreService {
 
     static async holdServiceSlot(username: string, serviceId: number, data: HoldServiceSlotData) {
         try {
-            const creator = await CreatorRepository.findByUsername(username);
+            const creator = await CreatorRepository.findPublicByUsername(username);
             if (!creator) return NotFound("Creator not found");
 
             const service = await StoreProductRepository.findVisibleById(serviceId);

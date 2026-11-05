@@ -9,7 +9,7 @@ import { FRONTEND_URL, GIFT_FEE_PERCENT } from "../config/env";
 import { MailService } from "./mail.service";
 import knex from "../db/knex";
 import { StoreService } from "./store.service";
-import { GiftSettlementService } from "./gift-settlement.service";
+import { GiftRecipientUnavailableError, GiftSettlementService } from "./gift-settlement.service";
 import { WithdrawalSettlementService } from "./withdrawal-settlement.service";
 import { calculateGiftFee } from "../utils/gift-fee";
 import { MAX_GIFT_AMOUNTS } from '../config/gift.config';
@@ -57,7 +57,7 @@ export class GiftService {
 
     static async initiateGift(creatorUsername: string, data: InitiateGiftData) {
         try {
-            const creator = await CreatorRepository.findByUsername(creatorUsername);
+            const creator = await CreatorRepository.findPublicByUsername(creatorUsername);
             if (!creator) {
                 return NotFound("Creator not found");
             }
@@ -163,6 +163,7 @@ export class GiftService {
 
             return Ok({ status: 'pending' }, "Payment is still pending");
         } catch (err: any) {
+            if (err instanceof GiftRecipientUnavailableError) return NotFound(err.message);
             return InternalError(err.message);
         }
     }
@@ -304,6 +305,7 @@ export class GiftService {
             if (claimedWebhook) {
                 await knex("payment_webhook_events").where({ provider: _provider, event_id: claimedWebhook.eventId }).update({ status: "failed", attempts: knex.raw("attempts + 1"), error_message: err.message });
             }
+            if (err instanceof GiftRecipientUnavailableError) return NotFound(err.message);
             return InternalError(err.message);
         }
     }
