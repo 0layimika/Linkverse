@@ -41,7 +41,7 @@ export const paginationSchema = z.object({
     query: z.object({
         limit: z.string().regex(/^\d+$/, "Limit must be a number").optional(),
         offset: z.string().regex(/^\d+$/, "Offset must be a number").optional(),
-        type: z.enum(["gift", "withdrawal", "store", "fee"]).optional(),
+        type: z.enum(["gift", "withdrawal", "store", "fee", "admin_debit"]).optional(),
     }),
 });
 
