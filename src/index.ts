@@ -6,6 +6,7 @@ import { WithdrawalQuoteService } from './services/withdrawal-quote.service';
 import { startWalletSettlementWorker } from './workers/wallet-settlement.worker';
 
 const startServer = async () => {
+    // Establish the database connection before starting the HTTP listener.
     // Check DB connection first
     await connectDB();
 
